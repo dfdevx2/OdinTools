@@ -1,6 +1,5 @@
 package de.langerhans.odintools.ui.screens
 
-import android.view.SoundEffectConstants
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -21,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,9 +53,7 @@ fun SettingsScreen(
 ) {
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-
     val currentTheme = RetroDarkTheme
-    val view = LocalView.current
 
     if (uiState.showPServerNotAvailableDialog) PServerNotAvailableDialog()
     else if (uiState.showIncompatibleDeviceDialog) NotAnOdinDialog { viewModel.incompatibleDeviceDialogDismissed() }
@@ -70,31 +66,25 @@ fun SettingsScreen(
         )
     }
 
-    // Usando Surface no lugar de Scaffold para resolver definitivamente o erro de padding do Compose
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = currentTheme.background
+    // Usando Box básico para evitar qualquer conflito com Scaffold ou Insets
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(currentTheme.background)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(windowInsetsPadding(WindowInsets.systemBars)) // Garante que não invada a barra de status
+            modifier = Modifier.fillMaxSize()
         ) {
             ConsoleMenuBar(
                 selectedTab = selectedTab,
                 theme = currentTheme,
-                onTabSelected = {
-                    if (selectedTab != it) {
-                        view.playSoundEffect(SoundEffectConstants.NAVIGATION_RIGHT)
-                        selectedTab = it
-                    }
-                }
+                onTabSelected = { selectedTab = it }
             )
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)
             ) {
                 when (selectedTab) {
                     0 -> PerformancePanel(uiState, viewModel, currentTheme, navigateToOverrideList)
@@ -112,7 +102,7 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 16.dp, start = 24.dp, end = 24.dp, bottom = 8.dp),
+            .padding(top = 32.dp, start = 24.dp, end = 24.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -279,13 +269,10 @@ fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
 
 @Composable
 fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, content: @Composable ColumnScope.() -> Unit) {
-    val view = LocalView.current
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = theme.surface),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { view.playSoundEffect(SoundEffectConstants.CLICK) }
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(vertical = 12.dp)) {
             Text(
