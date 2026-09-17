@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,24 @@ fun SettingsScreen(
 
     val currentTheme = RetroDarkTheme
     val view = LocalView.current
+    val context = LocalContext.current
+
+    // Gerenciador da Música de Fundo (BGM)
+    DisposableEffect(Unit) {
+        // A música deve estar na pasta res/raw/console_bgm.mp3
+        val mediaPlayer = try {
+            android.media.MediaPlayer.create(context, R.raw.console_bgm).apply {
+                isLooping = true
+                setVolume(0.3f, 0.3f)
+                start()
+            }
+        } catch (e: Exception) { null }
+
+        onDispose {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+        }
+    }
 
     if (uiState.showPServerNotAvailableDialog) PServerNotAvailableDialog()
     else if (uiState.showIncompatibleDeviceDialog) NotAnOdinDialog { viewModel.incompatibleDeviceDialogDismissed() }
@@ -74,10 +93,7 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(
-                    top = contentPadding.calculateTopPadding(),
-                    bottom = contentPadding.calculateBottomPadding()
-                )
+                .padding(contentPadding) // CORREÇÃO: Passando o padding inteiro diretamente
         ) {
             ConsoleMenuBar(
                 selectedTab = selectedTab,
@@ -250,7 +266,7 @@ fun SystemPanel(theme: ConsoleTheme) {
         ConsoleCard("Aparência Visual", "Modificar esquema de cores", theme) {
             TriggerPreference(
                 icon = R.drawable.ic_palette,
-                title = R.string.saturation, // Placeholder seguro
+                title = R.string.saturation,
                 description = R.string.saturationDescription
             ) { /* Futuro seletor de tema */ }
         }
