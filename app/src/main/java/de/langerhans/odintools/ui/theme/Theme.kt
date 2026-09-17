@@ -1,20 +1,17 @@
 package de.langerhans.odintools.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
-@Composable
-fun OdinToolsTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val colorScheme = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+data class ConsoleTheme(
+    val background: Color,
+    val surface: Color,
+    val primary: Color,
+    val text: Color
+)
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content,
-    )
-}
+val RetroDarkTheme = ConsoleTheme(
+    background = Color(0xFF0F0F13),
+    surface = Color(0xFF1C1C24),
+    primary = Color(0xFFE5002B),
+    text = Color(0xFFF3F4F6)
+)

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Nome do Aplicativo -->
+    <string name="appName">OdinTools OS</string>
+
+    <!-- Modos e Estados -->
+    <string name="xbox">Xbox</string>
+    <string name="odin">Odin</string>
+    <string name="disconnect">Desconectar</string>
+    <string name="controllerStyle">Estilo do controle</string>
+    <string name="unknown">Desconhecido</string>
+    <string name="l2r2mode">Modo L2/R2</string>
+    <string name="analog">Analógico</string>
+    <string name="digital">Digital</string>
+    <string name="both">Ambos</string>
+    <string name="perfMode">Modo de Desempenho</string>
+    <string name="standard">Padrão</string>
+    <string name="performance">Desempenho</string>
+    <string name="highPerformance">Alto Desempenho</string>
+    <string name="fanMode">Modo da Ventoinha</string>
+    <string name="fanOff">Desligado</string>
+    <string name="quiet">Silencioso</string>
+    <string name="smart">Inteligente</string>
+    <string name="sport">Esporte</string>
+    <string name="topBarVersions">Versão do dispositivo:\nVersão do app:</string>
+
+    <!-- Configurações Rápidas -->
+    <string name="quickSettings">Configurações Rápidas</string>
+    <string name="controllerStyleDesc">Selecione quais modos alternar no atalho de Estilo do Controle.</string>
+    <string name="l2r2modeDesc">Selecione quais modos alternar no atalho de Modo L2/R2.</string>
+
+    <!-- Botões -->
+    <string name="buttons">Botões</string>
+    <string name="singlePressHome">Botão Home (Toque único)</string>
+    <string name="singlePressHomeDescription">Quando ativado, permite usar o botão Home com um toque rápido em vez de toque duplo.</string>
+
+    <!-- Avisos e Diálogos -->
+    <string name="warning">Aviso</string>
+    <string name="incompatibleDevice">Este app foi feito para o Ayn Odin 2. Executá-lo em um dispositivo incompatível pode causar danos. O autor deste app não se responsabiliza por nenhum dano causado!</string>
+    <string name="pServerNotAvailable">O app não consegue acessar as configurações do dispositivo. Isso pode ter sido causado por uma atualização recente. Por enquanto, o app não pode ser usado. Desculpe!</string>
+    <string name="accept">Aceitar</string>
+    <string name="close">Fechar app</string>
+    <string name="closeButSad">Fechar app 😢</string>
+    <string name="cancel">Cancelar</string>
+    <string name="save">Salvar</string>
+    <string name="delete">Excluir</string>
+
+    <!-- Display -->
+    <string name="saturation">Saturação da tela</string>
+    <string name="display">Tela</string>
+    <string name="saturationDescription">Altera a saturação de cores da tela. Será reaplicado após reiniciar. O padrão é 1.0.</string>
+
+    <string name="videoOutputOverride">Override externo</string>
+    <string name="videoOutputOverrideDescription">Configurar override quando conectado a uma tela externa. Desligue para desativar.</string>
+
+    <!-- Overrides de Aplicativo -->
+    <string name="a11yDescription">Usado pelo OdinTools para detectar apps em execução e alternar configurações dinamicamente.</string>
+    <string name="appOverrides">Overrides de Aplicativo</string>
+    <string name="appOverridesDescription">Configurar perfis por app. Desligue para desativar todos os overrides.</string>
+    <string name="addOverride">Adicionar override</string>
+    <string name="deleteOverride">Excluir override</string>
+    <string name="deleteConfirm">Tem certeza de que deseja excluir este item?</string>
+    <string name="noChange">Sem alteração</string>
+    <string name="noOverrideCandidates">Você já adicionou overrides para todos os seus apps</string>
+    <string name="fanModeRequired">O modo da ventoinha é obrigatório ao definir um Modo de Desempenho</string>
+    <string name="overrideDelay">Atraso do override</string>
+    <string name="overrideDelayDescription">Atrasa a aplicação do perfil em 0.5s. Isso pode ajudar se os jogos fecharem sozinhos.</string>
+    <string name="searchApp">Pesquisar</string>
+    <string name="noMatches">Nenhuma correspondência.</string>
+
+    <!-- Vibração e Controles Extras -->
+    <string name="haptics">Vibração</string>
+    <string name="vibrationStrength">Força da vibração</string>
+    <string name="vibrationStrengthDescription">Ajuste a força máxima dos motores de vibração. Desligue para desativar haptics.</string>
+
+    <string name="remapButton">Reatribuir botão</string>
+    <string name="remapButtonDescription">Trocar a função do botão para outro comando do sistema</string>
+    <string name="m1Button">Botão M1</string>
+    <string name="m2Button">Botão M2</string>
+    <string name="pressAnyButton">Pressione qualquer botão</string>
+    <string name="setDefault">Restaurar Padrão</string>
+
+    <!-- Bateria -->
+    <string name="battery">Bateria</string>
+    <string name="chargeLimit">Limite de carga</string>
+    <string name="chargeLimitDescription">Quando ativado, liga a separação de carga (bypass) nos níveis de bateria especificados.</string>
+    <string name="chargeLimitPreferenceDialogOffAt">Desligar em %1$d%&#37;</string>
+    <string name="chargeLimitPreferenceDialogOnAt">Ligar em %1$d%&#37;</string>
+    <string name="chargeLimitPreferenceDialogDescription">A separação de carga (bypass) faz a energia ir direto para a placa, poupando a bateria.\nObserve que, se a fonte for fraca, a bateria será consumida.</string>
+
+    <!-- Sistema -->
+    <string name="debug">Sistema</string>
+    <string name="dumpLogToFile">Exportar Logs</string>
+    <string name="dumpLogToFileDescription">Salvar relatórios do sistema na memória interna para depuração técnica.</string>
+</resources>

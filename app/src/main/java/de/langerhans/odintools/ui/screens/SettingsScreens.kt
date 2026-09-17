@@ -31,20 +31,7 @@ import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.DeviceType.ODIN2
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.ui.composables.*
-
-data class ConsoleTheme(
-    val background: Color,
-    val surface: Color,
-    val primary: Color,
-    val text: Color
-)
-
-val RetroDarkTheme = ConsoleTheme(
-    background = Color(0xFF0F0F13),
-    surface = Color(0xFF1C1C24),
-    primary = Color(0xFFE5002B),
-    text = Color(0xFFF3F4F6)
-)
+import de.langerhans.odintools.ui.theme.*
 
 @Composable
 fun SettingsScreen(
@@ -74,7 +61,7 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 32.dp) // Margem fixa simples no topo para não colar na barra de status
+                .padding(top = 32.dp)
         ) {
             ConsoleMenuBar(
                 selectedTab = selectedTab,
@@ -85,7 +72,8 @@ fun SettingsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 16.dp)
             ) {
                 when (selectedTab) {
                     0 -> PerformancePanel(uiState, viewModel, currentTheme, navigateToOverrideList)
@@ -103,7 +91,8 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp),
+            .padding(horizontal = 24.dp)
+            .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -167,7 +156,9 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 @Composable
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, navigateToOverrideList: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ConsoleSectionHeader("AutoTDP & Frequências (PULSE)", theme)
@@ -186,7 +177,9 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 @Composable
 fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ConsoleSectionHeader("Ajustes de Tela", theme)
@@ -203,7 +196,9 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
 @Composable
 fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ConsoleSectionHeader("Mapeamento e Atalhos", theme)
@@ -235,7 +230,9 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
 @Composable
 fun SystemPanel(theme: ConsoleTheme) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ConsoleSectionHeader("Personalização e Sobre", theme)
@@ -264,7 +261,9 @@ fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
         fontWeight = FontWeight.Bold,
         color = theme.text.copy(alpha = 0.5f),
         letterSpacing = 1.sp,
-        modifier = Modifier.padding(bottom = 4.dp, top = 8.dp)
+        modifier = Modifier
+            .padding(bottom = 4.dp)
+            .padding(top = 8.dp)
     )
 }
 
@@ -275,7 +274,9 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, content: @
         colors = CardDefaults.cardColors(containerColor = theme.surface),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+        Column(
+            modifier = Modifier.padding(vertical = 12.dp)
+        ) {
             Text(
                 text = title,
                 fontSize = 18.sp,
@@ -287,9 +288,11 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, content: @
                 text = subtitle,
                 fontSize = 13.sp,
                 color = theme.text.copy(alpha = 0.6f),
-                modifier = Modifier.padding(horizontal = 16.dp, bottom = 12.dp)
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 12.dp)
             )
-            Divider(color = theme.background, thickness = 2.dp)
+            HorizontalDivider(color = theme.background, thickness = 2.dp)
             content()
         }
     }
