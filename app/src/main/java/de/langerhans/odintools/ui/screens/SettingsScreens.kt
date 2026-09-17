@@ -66,14 +66,15 @@ fun SettingsScreen(
         )
     }
 
-    // Usando Box básico para evitar qualquer conflito com Scaffold ou Insets
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(currentTheme.background)
     ) {
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 32.dp) // Margem fixa simples no topo para não colar na barra de status
         ) {
             ConsoleMenuBar(
                 selectedTab = selectedTab,
@@ -84,7 +85,7 @@ fun SettingsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
                 when (selectedTab) {
                     0 -> PerformancePanel(uiState, viewModel, currentTheme, navigateToOverrideList)
@@ -102,7 +103,7 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 32.dp, start = 24.dp, end = 24.dp, bottom = 16.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
