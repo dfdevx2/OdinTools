@@ -27,8 +27,8 @@ jobs:
     - name: Compilar o APK (Debug)
       run: ./gradlew assembleDebug
 
-    - name: Fazer Upload do APK
+ - name: Fazer Upload do APK
       uses: actions/upload-artifact@v4
       with:
         name: OdinTools-BETA
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: app/build/outputs/apk/**/*.apk
