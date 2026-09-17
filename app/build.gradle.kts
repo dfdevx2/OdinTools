@@ -17,7 +17,6 @@ android {
         targetSdk = 34
         versionCode = 11
         versionName = "1.3.1"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -26,15 +25,8 @@ android {
             initWith(buildTypes.getByName("debug"))
             isDebuggable = false
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            applicationVariants.all {
-                val variant = this
-                outputs
-                    .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
-                    .forEach {
-                        it.outputFileName = "OdinTools-${variant.versionName}.apk"
-                    }
-            }
         }
     }
 
@@ -51,13 +43,9 @@ android {
         compose = true
         buildConfig = true
     }
+
     packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-    hilt {
-        enableAggregatingTask = true
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
 }
 
@@ -65,18 +53,12 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
-kotlin {
-    jvmToolchain(17)
-}
-
 dependencies {
-    // Compose BOM specifics
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)
     debugImplementation(composeBom)
 
-    // Normal imports
     implementation(libs.bundles.app)
     debugImplementation(libs.bundles.appDebug)
     annotationProcessor(libs.bundles.appAnnotationProcessor)
@@ -84,7 +66,6 @@ dependencies {
     testImplementation(libs.bundles.appUnitTest)
     androidTestImplementation(libs.bundles.appAndroidTest)
 
-    // Hilt dependencies
     implementation(libs.com.google.dagger.hilt.android)
     ksp(libs.com.google.dagger.hilt.android.compiler)
 }
