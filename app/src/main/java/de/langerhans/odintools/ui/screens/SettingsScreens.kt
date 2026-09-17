@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,8 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,7 +34,6 @@ import de.langerhans.odintools.tools.DeviceType.ODIN2
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.ui.composables.*
 
-// Paleta de Cores do Tema (Será conectada ao ViewModel depois para mudar globalmente)
 data class ConsoleTheme(
     val background: Color,
     val surface: Color,
@@ -59,7 +56,6 @@ fun SettingsScreen(
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Por enquanto, travado no tema escuro retrô. Na próxima etapa, puxaremos a cor dinâmica.
     val currentTheme = RetroDarkTheme
     val view = LocalView.current
 
@@ -78,9 +74,11 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(contentPadding)
+                .padding(
+                    top = contentPadding.calculateTopPadding(),
+                    bottom = contentPadding.calculateBottomPadding()
+                )
         ) {
-            // Header: Barra de Navegação de Console
             ConsoleMenuBar(
                 selectedTab = selectedTab,
                 theme = currentTheme,
@@ -92,7 +90,6 @@ fun SettingsScreen(
                 }
             )
 
-            // Painel de Conteúdo
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -118,15 +115,15 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ConsoleTabItem(0, "PERFORMANCE", Icons.Default.Speed, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(1, "DISPLAY", Icons.Default.DesktopWindows, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(2, "CONTROLES", Icons.Default.SportsEsports, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(3, "SISTEMA", Icons.Default.Settings, selectedTab, theme, onTabSelected)
+        ConsoleTabItem(0, "PERFORMANCE", R.drawable.ic_sliders, selectedTab, theme, onTabSelected)
+        ConsoleTabItem(1, "DISPLAY", R.drawable.ic_palette, selectedTab, theme, onTabSelected)
+        ConsoleTabItem(2, "CONTROLES", R.drawable.ic_gamepad, selectedTab, theme, onTabSelected)
+        ConsoleTabItem(3, "SISTEMA", R.drawable.ic_app_settings, selectedTab, theme, onTabSelected)
     }
 }
 
 @Composable
-fun ConsoleTabItem(index: Int, title: String, icon: ImageVector, selectedTab: Int, theme: ConsoleTheme, onClick: (Int) -> Unit) {
+fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, theme: ConsoleTheme, onClick: (Int) -> Unit) {
     val isSelected = selectedTab == index
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -150,7 +147,12 @@ fun ConsoleTabItem(index: Int, title: String, icon: ImageVector, selectedTab: In
             .clickable(interactionSource = interactionSource, indication = null) { onClick(index) }
             .padding(8.dp)
     ) {
-        Icon(imageVector = icon, contentDescription = title, tint = color, modifier = Modifier.size(28.dp))
+        Icon(
+            painter = painterResource(id = iconResId),
+            contentDescription = title,
+            tint = color,
+            modifier = Modifier.size(28.dp)
+        )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = title,
@@ -176,7 +178,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        ConsoleSectionHeader("AutoTDP & Frequências (PULSE ENGINE)", theme)
+        ConsoleSectionHeader("AutoTDP & Frequências (PULSE)", theme)
         ConsoleCard("Overrides de Aplicativo", "Gerenciar perfis de energia por jogo", theme) {
             SwitchableTriggerPreference(
                 icon = R.drawable.ic_app_settings,
@@ -186,7 +188,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 onClick = navigateToOverrideList,
             ) { viewModel.appOverridesEnabled(it) }
         }
-        // Os sliders e controles do Pulse virão para cá na próxima iteração
     }
 }
 
@@ -214,7 +215,7 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ConsoleSectionHeader("Mapeamento e Atalhos", theme)
-        ConsoleCard("Botões de Sistema", "Comportamento do botão Home e atalhos traseiros", theme) {
+        ConsoleCard("Botões de Sistema", "Comportamento do botão Home e atalhos", theme) {
             SwitchPreference(
                 icon = R.drawable.ic_home,
                 title = R.string.singlePressHome,
@@ -246,11 +247,19 @@ fun SystemPanel(theme: ConsoleTheme) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ConsoleSectionHeader("Personalização e Sobre", theme)
-        ConsoleCard("Aparência Visual", "Modificar esquema de cores e comportamento da UI", theme) {
-            TriggerPreference(icon = R.drawable.ic_palette, title = R.string.app_name, description = R.string.app_name) { /* Futuro seletor de tema */ }
+        ConsoleCard("Aparência Visual", "Modificar esquema de cores", theme) {
+            TriggerPreference(
+                icon = R.drawable.ic_palette,
+                title = R.string.saturation, // Placeholder seguro
+                description = R.string.saturationDescription
+            ) { /* Futuro seletor de tema */ }
         }
-        ConsoleCard("OdinTools OS", "Informações e atualizações do sistema", theme) {
-            TriggerPreference(icon = R.drawable.ic_file_save, title = R.string.dumpLogToFile, description = R.string.dumpLogToFileDescription) { /* Placeholder */ }
+        ConsoleCard("OdinTools OS", "Informações do sistema", theme) {
+            TriggerPreference(
+                icon = R.drawable.ic_file_save,
+                title = R.string.dumpLogToFile,
+                description = R.string.dumpLogToFileDescription
+            ) { /* Placeholder */ }
         }
     }
 }
