@@ -1,6 +1,5 @@
 package de.langerhans.odintools.ui.screens
 
-import androidx.compose.ui.graphics.graphicsLayer
 import android.media.MediaPlayer
 import android.view.KeyEvent
 import androidx.compose.animation.*
@@ -25,6 +24,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +35,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import de.langerhans.odintools.R
 import de.langerhans.odintools.main.MainUiModel
 import de.langerhans.odintools.main.MainViewModel
@@ -66,6 +69,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val bgmPlayer = remember { MediaPlayer.create(context, R.raw.bgm_1).apply { isLooping = true } }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     fun playSfx(resId: Int) {
         if (sfxEnabled) {
@@ -77,12 +81,26 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
     }
 
-    LaunchedEffect(bgmEnabled, bgmVolume, showBootAnimation) {
+    // Gerenciador de Ciclo de Vida: Pausa a BGM se o app for minimizado
+    DisposableEffect(lifecycleOwner, bgmEnabled, showBootAnimation) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                if (bgmPlayer.isPlaying) bgmPlayer.pause()
+            } else if (event == Lifecycle.Event.ON_RESUME) {
+                if (bgmEnabled && !showBootAnimation) bgmPlayer.start()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         bgmPlayer.setVolume(bgmVolume, bgmVolume)
-        if (bgmEnabled && !bgmPlayer.isPlaying && !showBootAnimation) bgmPlayer.start()
-        else if ((!bgmEnabled || showBootAnimation) && bgmPlayer.isPlaying) bgmPlayer.pause()
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
-    DisposableEffect(Unit) { onDispose { bgmPlayer.release() } }
+
+    DisposableEffect(Unit) {
+        onDispose { bgmPlayer.release() }
+    }
 
     if (showBootAnimation) {
         BootAndWelcomeScreen(
@@ -103,8 +121,18 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_BUTTON_R1 -> { playSfx(R.raw.sfx_nav); selectedTab = (selectedTab + 1).coerceAtMost(3); true }
-                        KeyEvent.KEYCODE_BUTTON_L1 -> { playSfx(R.raw.sfx_nav); selectedTab = (selectedTab - 1).coerceAtLeast(0); true }
+                        KeyEvent.KEYCODE_BUTTON_R1 -> {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            playSfx(R.raw.sfx_nav)
+                            selectedTab = (selectedTab + 1).coerceAtMost(3)
+                            true
+                        }
+                        KeyEvent.KEYCODE_BUTTON_L1 -> {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            playSfx(R.raw.sfx_nav)
+                            selectedTab = (selectedTab - 1).coerceAtLeast(0)
+                            true
+                        }
                         else -> false
                     }
                 } else false
@@ -411,10 +439,6 @@ fun SystemPanel(
         }
     }
 }
-
-// ==========================================
-// COMPONENTES CUSTOMIZADOS (Estilo SteamOS)
-// ==========================================
 
 @Composable
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
