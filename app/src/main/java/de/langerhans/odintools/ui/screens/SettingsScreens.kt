@@ -41,70 +41,64 @@ fun SettingsScreen(
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Estado do tema (no futuro, salvaremos isso na memória do aparelho)
+    // Estados visuais
     var currentThemeIndex by remember { mutableIntStateOf(0) }
     val currentTheme = AvailableThemes[currentThemeIndex]
+
+    // Estados de Áudio
+    var bgmEnabled by remember { mutableStateOf(true) }
+    var bgmVolume by remember { mutableFloatStateOf(0.3f) }
+    var sfxEnabled by remember { mutableStateOf(true) }
+    var sfxVolume by remember { mutableFloatStateOf(0.8f) }
+
     val context = LocalContext.current
+    val bgmPlayer = remember { MediaPlayer.create(context, R.raw.bgm_1).apply { isLooping = true } }
 
-    // Toca SFX rápido sem travar a interface
     fun playSfx(resId: Int) {
-        MediaPlayer.create(context, resId)?.apply {
-            setOnCompletionListener { release() }
-            start()
+        if (sfxEnabled) {
+            MediaPlayer.create(context, resId)?.apply {
+                setVolume(sfxVolume, sfxVolume)
+                setOnCompletionListener { release() }
+                start()
+            }
         }
     }
 
-    // Inicia a Música de Fundo (BGM)
-    DisposableEffect(Unit) {
-        val mediaPlayer = MediaPlayer.create(context, R.raw.bgm_1).apply {
-            isLooping = true
-            setVolume(0.2f, 0.2f) // Volume suave para não incomodar
-            start()
-        }
-        onDispose {
-            mediaPlayer.stop()
-            mediaPlayer.release()
-        }
+    // Gerenciamento BGM
+    LaunchedEffect(bgmEnabled, bgmVolume) {
+        bgmPlayer.setVolume(bgmVolume, bgmVolume)
+        if (bgmEnabled && !bgmPlayer.isPlaying) bgmPlayer.start()
+        else if (!bgmEnabled && bgmPlayer.isPlaying) bgmPlayer.pause()
     }
+    DisposableEffect(Unit) { onDispose { bgmPlayer.release() } }
 
     if (uiState.showPServerNotAvailableDialog) PServerNotAvailableDialog()
     else if (uiState.showIncompatibleDeviceDialog) NotAnOdinDialog { viewModel.incompatibleDeviceDialogDismissed() }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(currentTheme.background)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars)
-        ) {
+    Box(modifier = Modifier.fillMaxSize().background(currentTheme.background)) {
+        Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
             ConsoleMenuBar(
-                selectedTab = selectedTab,
-                theme = currentTheme,
+                selectedTab = selectedTab, theme = currentTheme,
                 onTabSelected = {
-                    if (selectedTab != it) {
-                        playSfx(R.raw.sfx_nav)
-                        selectedTab = it
-                    }
+                    if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it }
                 }
             )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 16.dp)
-            ) {
+            Box(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp)) {
                 when (selectedTab) {
                     0 -> PerformancePanel(uiState, viewModel, currentTheme, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
-                    1 -> DisplayPanel(viewModel, currentTheme) { playSfx(R.raw.sfx_select) }
+                    1 -> DisplayPanel(currentTheme) { playSfx(R.raw.sfx_select) }
                     2 -> ControlsPanel(uiState, viewModel, currentTheme) { playSfx(R.raw.sfx_select) }
-                    3 -> SystemPanel(currentTheme, currentThemeIndex, onThemeChange = {
-                        currentThemeIndex = it
-                        playSfx(R.raw.sfx_select)
-                    })
+                    3 -> SystemPanel(
+                        theme = currentTheme,
+                        currentThemeIndex = currentThemeIndex,
+                        bgmEnabled = bgmEnabled, bgmVolume = bgmVolume,
+                        sfxEnabled = sfxEnabled, sfxVolume = sfxVolume,
+                        playClick = { playSfx(R.raw.sfx_select) },
+                        onThemeChange = { currentThemeIndex = it },
+                        onBgmToggle = { bgmEnabled = it }, onBgmVolume = { bgmVolume = it },
+                        onSfxToggle = { sfxEnabled = it }, onSfxVolume = { sfxVolume = it }
+                    )
                 }
             }
         }
@@ -113,13 +107,7 @@ fun SettingsScreen(
 
 @Composable
 fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         ConsoleTabItem(0, "PERFORMANCE", R.drawable.ic_sliders, selectedTab, theme, onTabSelected)
         ConsoleTabItem(1, "DISPLAY", R.drawable.ic_palette, selectedTab, theme, onTabSelected)
         ConsoleTabItem(2, "CONTROLES", R.drawable.ic_gamepad, selectedTab, theme, onTabSelected)
@@ -132,23 +120,131 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
     val isSelected = selectedTab == index
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.9f else if (isSelected) 1.1f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "tabScale"
-    )
+    val scale by animateFloatAsState(targetValue = if (isPressed) 0.9f else if (isSelected) 1.1f else 1.0f, label = "tabScale")
     val color by animateColorAsState(if (isSelected) theme.primary else theme.text.copy(alpha = 0.4f), label = "tabColor")
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.scale(scale).clickable(interactionSource = interactionSource, indication = null) { onClick(index) }.padding(8.dp)
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.scale(scale).clickable(interactionSource = interactionSource, indication = null) { onClick(index) }.padding(8.dp)) {
         Icon(painterResource(iconResId), contentDescription = title, tint = color, modifier = Modifier.size(28.dp))
         Spacer(modifier = Modifier.height(4.dp))
         Text(title, color = color, fontSize = 12.sp, fontFamily = theme.fontFamily, fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold, letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(4.dp))
         Box(modifier = Modifier.height(3.dp).width(24.dp).clip(RoundedCornerShape(50)).background(if (isSelected) theme.primary else Color.Transparent))
+    }
+}
+
+// ==========================================
+// ABAS DA INTERFACE
+// ==========================================
+
+@Composable
+fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
+    var satValue by remember { mutableFloatStateOf(1.0f) }
+    var tempValue by remember { mutableFloatStateOf(6500f) }
+    var expandedProfile by remember { mutableStateOf(false) }
+    val profiles = listOf("Nativo", "Vibrante", "Cinema", "Filme")
+    var selectedProfile by remember { mutableStateOf(profiles[0]) }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        ConsoleSectionHeader("Calibração de Tela", theme)
+
+        ConsoleCard("Ajustes Manuais", "Saturação e Temperatura de cor", theme, playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text("Saturação: ${"%.1f".format(satValue)}", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(value = satValue, onValueChange = { satValue = it }, valueRange = 0.0f..2.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text("Temperatura: ${tempValue.toInt()}K", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(value = tempValue, onValueChange = { tempValue = it }, valueRange = 4000f..9000f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleCard("Perfis de Imagem", selectedProfile, theme, { expandedProfile = true; playClick() }) {
+            DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
+                profiles.forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
+                        onClick = {
+                            selectedProfile = profile
+                            expandedProfile = false
+                            playClick()
+                            // Aplicaríamos o reshade aqui
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, playClick: () -> Unit) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        ConsoleSectionHeader("Mapeamento", theme)
+
+        ConsoleCard("Atalhos do Sistema", "Comportamento geral", theme, playClick) {
+            SwitchPreference(icon = R.drawable.ic_home, title = R.string.singlePressHome, description = R.string.singlePressHomeDescription, state = uiState.singlePressHomeEnabled) { playClick(); viewModel.updateSinglePressHomePreference(it) }
+        }
+
+        if (uiState.deviceType == ODIN2) {
+            ConsoleCard("Botões Traseiros (Macro)", "Mapear M1 e M2", theme, playClick) {
+                TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m1Button, description = R.string.remapButtonDescription) { playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M1_VALUE) }
+                TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m2Button, description = R.string.remapButtonDescription) { playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M2_VALUE) }
+            }
+        }
+    }
+}
+
+@Composable
+fun SystemPanel(
+    theme: ConsoleTheme, currentThemeIndex: Int,
+    bgmEnabled: Boolean, bgmVolume: Float, sfxEnabled: Boolean, sfxVolume: Float,
+    playClick: () -> Unit, onThemeChange: (Int) -> Unit,
+    onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit,
+    onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit
+) {
+    var expandedTheme by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+        ConsoleSectionHeader("Personalização UI", theme)
+        ConsoleCard("Tema do Console", AvailableThemes[currentThemeIndex].name, theme, { expandedTheme = true; playClick() }) {
+            DropdownMenu(expanded = expandedTheme, onDismissRequest = { expandedTheme = false }, modifier = Modifier.background(theme.surface)) {
+                AvailableThemes.forEachIndexed { index, consoleTheme ->
+                    DropdownMenuItem(
+                        text = { Text(consoleTheme.name, color = if (currentThemeIndex == index) theme.primary else theme.text, fontFamily = theme.fontFamily) },
+                        onClick = { onThemeChange(index); expandedTheme = false; playClick() }
+                    )
+                }
+            }
+        }
+
+        ConsoleSectionHeader("Mixer de Áudio", theme)
+        ConsoleCard("Música de Fundo (BGM)", "Volume: ${(bgmVolume * 100).toInt()}%", theme, playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Habilitar Música", color = theme.text, fontFamily = theme.fontFamily)
+                    Switch(checked = bgmEnabled, onCheckedChange = { onBgmToggle(it); playClick() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.5f)))
+                }
+                Slider(value = bgmVolume, onValueChange = { onBgmVolume(it) }, enabled = bgmEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleCard("Efeitos Sonoros (SFX)", "Volume: ${(sfxVolume * 100).toInt()}%", theme, playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Habilitar SFX", color = theme.text, fontFamily = theme.fontFamily)
+                    Switch(checked = sfxEnabled, onCheckedChange = { onSfxToggle(it); playClick() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.5f)))
+                }
+                Slider(value = sfxVolume, onValueChange = { onSfxVolume(it) }, enabled = sfxEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleSectionHeader("Sobre", theme)
+        ConsoleCard("OdinTools OS", "Versão 1.3.1 - Por Langerhans & SeuNome", theme, playClick) {
+            TriggerPreference(icon = R.drawable.ic_file_save, title = R.string.dumpLogToFile, description = R.string.dumpLogToFileDescription) { playClick() }
+            TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.unknown, description = R.string.unknown) { /* Apoie / Verificar Update */ }
+        }
     }
 }
 
@@ -162,50 +258,9 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     }
 }
 
-@Composable
-fun DisplayPanel(viewModel: MainViewModel, theme: ConsoleTheme, playClick: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("Ajustes de Tela", theme)
-        ConsoleCard(stringResource(R.string.saturation), stringResource(R.string.saturationDescription), theme, playClick) {
-            TriggerPreference(icon = R.drawable.ic_palette, title = R.string.saturation, description = R.string.saturationDescription) { playClick(); viewModel.saturationClicked() }
-        }
-    }
-}
-
-@Composable
-fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, playClick: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("Mapeamento", theme)
-        ConsoleCard("Botões de Sistema", "Comportamento de atalhos", theme, playClick) {
-            SwitchPreference(icon = R.drawable.ic_home, title = R.string.singlePressHome, description = R.string.singlePressHomeDescription, state = uiState.singlePressHomeEnabled) { playClick(); viewModel.updateSinglePressHomePreference(it) }
-        }
-    }
-}
-
-@Composable
-fun SystemPanel(theme: ConsoleTheme, currentThemeIndex: Int, onThemeChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("Personalização", theme)
-
-        ConsoleCard("Tema do Console", "Mude a aparência e a interface", theme, { }) {
-            AvailableThemes.forEachIndexed { index, consoleTheme ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onThemeChange(index) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = consoleTheme.name, fontFamily = theme.fontFamily, color = if (currentThemeIndex == index) theme.primary else theme.text)
-                    if (currentThemeIndex == index) {
-                        Box(modifier = Modifier.size(12.dp).clip(RoundedCornerShape(50)).background(theme.primary))
-                    }
-                }
-            }
-        }
-    }
-}
+// ==========================================
+// COMPONENTES BASE
+// ==========================================
 
 @Composable
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
