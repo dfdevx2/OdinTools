@@ -19,8 +19,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -35,18 +37,28 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import de.langerhans.odintools.R
 import de.langerhans.odintools.main.MainUiModel
 import de.langerhans.odintools.main.MainViewModel
+import de.langerhans.odintools.tools.DeviceType.ODIN2
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.ui.composables.*
 import de.langerhans.odintools.ui.theme.*
+import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrideList: () -> Unit) {
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    // Estados do Sistema
+    var isFirstRun by remember { mutableStateOf(true) } // Futuramente ligado ao SharedPreferences
+    var showBootAnimation by remember { mutableStateOf(isFirstRun) }
+
     var currentThemeIndex by remember { mutableIntStateOf(1) }
     var useAmoledBlack by remember { mutableStateOf(false) }
-    val finalTheme = getResolvedTheme(AvailableThemes[currentThemeIndex], useAmoledBlack)
+    var currentLanguage by remember { mutableStateOf("Português (PT-BR)") }
+
+    val rawTheme = AvailableThemes[currentThemeIndex]
+    // O finalTheme agora inverte a paleta se o AMOLED estiver ativo
+    val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
 
     var bgmEnabled by remember { mutableStateOf(true) }
     var bgmVolume by remember { mutableFloatStateOf(0.3f) }
@@ -67,31 +79,34 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
     }
 
-    LaunchedEffect(bgmEnabled, bgmVolume) {
+    LaunchedEffect(bgmEnabled, bgmVolume, showBootAnimation) {
         bgmPlayer.setVolume(bgmVolume, bgmVolume)
-        if (bgmEnabled && !bgmPlayer.isPlaying) bgmPlayer.start()
-        else if (!bgmEnabled && bgmPlayer.isPlaying) bgmPlayer.pause()
+        if (bgmEnabled && !bgmPlayer.isPlaying && !showBootAnimation) bgmPlayer.start()
+        else if ((!bgmEnabled || showBootAnimation) && bgmPlayer.isPlaying) bgmPlayer.pause()
     }
     DisposableEffect(Unit) { onDispose { bgmPlayer.release() } }
+
+    if (showBootAnimation) {
+        BootAndWelcomeScreen(
+            theme = finalTheme,
+            onFinish = {
+                showBootAnimation = false
+                isFirstRun = false
+                playSfx(R.raw.sfx_select)
+            }
+        )
+        return
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(finalTheme.background)
             .onPreviewKeyEvent { event ->
-                // Captura L1 e R1 para navegação entre abas
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_BUTTON_R1 -> {
-                            playSfx(R.raw.sfx_nav)
-                            selectedTab = (selectedTab + 1).coerceAtMost(3)
-                            true
-                        }
-                        KeyEvent.KEYCODE_BUTTON_L1 -> {
-                            playSfx(R.raw.sfx_nav)
-                            selectedTab = (selectedTab - 1).coerceAtLeast(0)
-                            true
-                        }
+                        KeyEvent.KEYCODE_BUTTON_R1 -> { playSfx(R.raw.sfx_nav); selectedTab = (selectedTab + 1).coerceAtMost(3); true }
+                        KeyEvent.KEYCODE_BUTTON_L1 -> { playSfx(R.raw.sfx_nav); selectedTab = (selectedTab - 1).coerceAtLeast(0); true }
                         else -> false
                     }
                 } else false
@@ -117,11 +132,11 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                 targetState = selectedTab,
                 transitionSpec = {
                     if (targetState > initialState) {
-                        slideInHorizontally(animationSpec = tween(400, easing = FastOutSlowInEasing)) { width -> width } + fadeIn(animationSpec = tween(400)) togetherWith
-                            slideOutHorizontally(animationSpec = tween(400, easing = FastOutSlowInEasing)) { width -> -width } + fadeOut(animationSpec = tween(400))
+                        slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeIn(tween(300)) togetherWith
+                            slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeOut(tween(300))
                     } else {
-                        slideInHorizontally(animationSpec = tween(400, easing = FastOutSlowInEasing)) { width -> -width } + fadeIn(animationSpec = tween(400)) togetherWith
-                            slideOutHorizontally(animationSpec = tween(400, easing = FastOutSlowInEasing)) { width -> width } + fadeOut(animationSpec = tween(400))
+                        slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeIn(tween(300)) togetherWith
+                            slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeOut(tween(300))
                     }
                 },
                 modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp)
@@ -131,12 +146,13 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                     1 -> DisplayPanel(finalTheme) { playSfx(R.raw.sfx_select) }
                     2 -> ControlsPanel(uiState, viewModel, finalTheme) { playSfx(R.raw.sfx_select) }
                     3 -> SystemPanel(
-                        theme = finalTheme, currentThemeIndex = currentThemeIndex,
-                        amoledBlack = useAmoledBlack, onAmoledToggle = { useAmoledBlack = it; playSfx(R.raw.sfx_select) },
-                        bgmEnabled = bgmEnabled, bgmVolume = bgmVolume, sfxEnabled = sfxEnabled, sfxVolume = sfxVolume,
-                        playClick = { playSfx(R.raw.sfx_select) }, onThemeChange = { currentThemeIndex = it },
+                        theme = finalTheme, currentLanguage = currentLanguage,
+                        amoledBlack = useAmoledBlack, bgmEnabled = bgmEnabled, bgmVolume = bgmVolume, sfxEnabled = sfxEnabled, sfxVolume = sfxVolume,
+                        playClick = { playSfx(R.raw.sfx_select) }, onLanguageChange = { currentLanguage = it },
+                        onAmoledToggle = { useAmoledBlack = it; playSfx(R.raw.sfx_select) },
                         onBgmToggle = { bgmEnabled = it; playSfx(R.raw.sfx_select) }, onBgmVolume = { bgmVolume = it },
-                        onSfxToggle = { sfxEnabled = it; playSfx(R.raw.sfx_select) }, onSfxVolume = { sfxVolume = it }
+                        onSfxToggle = { sfxEnabled = it; playSfx(R.raw.sfx_select) }, onSfxVolume = { sfxVolume = it },
+                        onReplayBoot = { showBootAnimation = true }
                     )
                 }
             }
@@ -144,9 +160,61 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     }
 }
 
+// ==========================================
+// TELA DE BOOT (OOBE)
+// ==========================================
+@Composable
+fun BootAndWelcomeScreen(theme: ConsoleTheme, onFinish: () -> Unit) {
+    var stage by remember { mutableIntStateOf(0) }
+    val alpha by animateFloatAsState(targetValue = if (stage == 1) 1f else 0f, animationSpec = tween(1500), label = "bootGlow")
+
+    LaunchedEffect(Unit) {
+        delay(500)
+        stage = 1 // Acende o logo
+        delay(2500)
+        stage = 2 // Passa para o Welcome
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        if (stage < 2) {
+            // Animação do Raio/Glow no texto ODIN HUB
+            Text(
+                text = "ODIN HUB",
+                fontSize = 48.sp,
+                fontFamily = theme.fontFamily,
+                fontWeight = FontWeight.Black,
+                color = theme.primary.copy(alpha = alpha),
+                letterSpacing = 6.sp,
+                modifier = Modifier.drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(Color.Transparent, Color.White.copy(alpha = alpha * 0.5f), Color.Transparent)
+                        )
+                    )
+                }
+            )
+        } else {
+            // Tela de Welcome para Configuração Rápida
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                Text("Bem-vindo ao Odin Hub", fontSize = 28.sp, fontFamily = theme.fontFamily, color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Seu console, suas regras. Configure os ajustes iniciais:", fontSize = 16.sp, color = Color.Gray, fontFamily = theme.fontFamily)
+
+                Button(onClick = onFinish, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.padding(top = 32.dp)) {
+                    Text("INICIAR SISTEMA", fontFamily = theme.fontFamily, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(8.dp))
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// ABAS E PAINEIS
+// ==========================================
+
 @Composable
 fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         ConsoleTabItem(0, "PERFORMANCE", R.drawable.ic_sliders, selectedTab, theme, onTabSelected)
         ConsoleTabItem(1, "DISPLAY", R.drawable.ic_palette, selectedTab, theme, onTabSelected)
         ConsoleTabItem(2, "CONTROLES", R.drawable.ic_gamepad, selectedTab, theme, onTabSelected)
@@ -166,31 +234,74 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
         Icon(painterResource(iconResId), contentDescription = title, tint = color, modifier = Modifier.size(28.dp))
         Spacer(modifier = Modifier.height(4.dp))
         Text(title, color = color, fontSize = 12.sp, fontFamily = theme.fontFamily, fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold, letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(4.dp))
         Box(modifier = Modifier.height(3.dp).width(24.dp).clip(RoundedCornerShape(50)).background(if (isSelected) theme.primary else Color.Transparent))
     }
 }
 
-// ==========================================
-// ABAS DA INTERFACE
-// ==========================================
+@Composable
+fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
+    var tdpValue by remember { mutableFloatStateOf(15f) }
+    var cpuClock by remember { mutableFloatStateOf(3200f) }
+    var gpuClock by remember { mutableFloatStateOf(800f) }
+
+    var expandedFan by remember { mutableStateOf(false) }
+    val fanModes = listOf("Smart", "Quiet", "Balanced", "Sport", "Full (Max)") // Baseado no Pulse/ClusterTune
+    var selectedFan by remember { mutableStateOf(fanModes[0]) }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        ConsoleSectionHeader("Limites de Hardware (Pulse Engine)", theme)
+
+        ConsoleCard("AutoTDP Dinâmico", "Controla o consumo máximo de energia (W)", theme, playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text("Limite Global: ${tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(value = tdpValue, onValueChange = { tdpValue = it }, valueRange = 5f..30f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleCard("Frequências Manuais (Clock)", "Ajuste individual de CPU e GPU", theme, playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text("Max CPU: ${cpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(value = cpuClock, onValueChange = { cpuClock = it }, valueRange = 1000f..4200f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Max GPU: ${gpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(value = gpuClock, onValueChange = { gpuClock = it }, valueRange = 300f..1100f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleSectionHeader("Refrigeração e Regras", theme)
+
+        ConsoleCard("Controle da Ventoinha (Fan)", selectedFan, theme, { expandedFan = true; playClick() }) {
+            DropdownMenu(expanded = expandedFan, onDismissRequest = { expandedFan = false }, modifier = Modifier.background(theme.surface)) {
+                fanModes.forEach { mode -> DropdownMenuItem(text = { Text(mode, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { selectedFan = mode; expandedFan = false; playClick() }) }
+            }
+        }
+
+        ConsoleCard("Overrides por Jogo", "Configurar Perfis, Displays e Clocks", theme, playClick) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Habilitar Overrides", color = theme.text, fontFamily = theme.fontFamily)
+                ConsoleToggle(checked = uiState.appOverridesEnabled, theme = theme)
+            }
+            TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.appOverrides, description = R.string.appOverridesDescription) { playClick(); navigateToOverrideList() }
+        }
+    }
+}
 
 @Composable
 fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
     var satValue by remember { mutableFloatStateOf(1.0f) }
     var tempValue by remember { mutableFloatStateOf(6500f) }
     var expandedProfile by remember { mutableStateOf(false) }
-    val profiles = listOf("Nativo", "Vibrante", "Cinema", "Filme")
+    val profiles = listOf("Nativo", "Vibrante", "Cinema", "Retrô")
     var selectedProfile by remember { mutableStateOf(profiles[0]) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Calibração de Tela", theme)
-        ConsoleCard("Perfis de Imagem", selectedProfile, theme, { expandedProfile = true; playClick() }) {
+        ConsoleCard("Perfis de Imagem Global", selectedProfile, theme, { expandedProfile = true; playClick() }) {
             DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
                 profiles.forEach { profile -> DropdownMenuItem(text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { selectedProfile = profile; expandedProfile = false; playClick() }) }
             }
         }
-        ConsoleCard("Ajustes Manuais", "Saturação e Temperatura de cor", theme, playClick) {
+        ConsoleCard("Ajustes Manuais", "Saturação e Temperatura", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text("Saturação: ${"%.1f".format(satValue)}", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(value = satValue, onValueChange = { satValue = it }, valueRange = 0.0f..2.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
@@ -206,15 +317,13 @@ fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
 fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, playClick: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Mapeamento e Atalhos", theme)
-        ConsoleCard("Botões de Sistema", "Comportamento geral", theme, playClick) {
+        ConsoleCard("Atalhos do Sistema", "Comportamento geral", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Toque Único no Home", color = theme.text, fontFamily = theme.fontFamily)
                 ConsoleToggle(checked = uiState.singlePressHomeEnabled, theme = theme)
             }
         }
-
-        // Removida a trava de hardware - Os botões M1/M2 agora sempre aparecem para serem mapeados
-        ConsoleCard("Botões Traseiros (Macro)", "Configuração avançada dos botões M1 e M2", theme, playClick) {
+        ConsoleCard("Botões Traseiros (Macro)", "Mapear M1 e M2", theme, playClick) {
             TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m1Button, description = R.string.remapButtonDescription) { playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M1_VALUE) }
             TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m2Button, description = R.string.remapButtonDescription) { playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M2_VALUE) }
         }
@@ -223,23 +332,26 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
 
 @Composable
 fun SystemPanel(
-    theme: ConsoleTheme, currentThemeIndex: Int, amoledBlack: Boolean,
+    theme: ConsoleTheme, currentLanguage: String, amoledBlack: Boolean,
     bgmEnabled: Boolean, bgmVolume: Float, sfxEnabled: Boolean, sfxVolume: Float,
-    playClick: () -> Unit, onThemeChange: (Int) -> Unit, onAmoledToggle: (Boolean) -> Unit,
-    onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit, onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit
+    playClick: () -> Unit, onLanguageChange: (String) -> Unit, onAmoledToggle: (Boolean) -> Unit,
+    onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit, onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit,
+    onReplayBoot: () -> Unit
 ) {
-    var expandedTheme by remember { mutableStateOf(false) }
+    var expandedLang by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
-        ConsoleSectionHeader("Personalização UI", theme)
-        ConsoleCard("Tema do Console", AvailableThemes[currentThemeIndex].name, theme, { expandedTheme = true; playClick() }) {
-            DropdownMenu(expanded = expandedTheme, onDismissRequest = { expandedTheme = false }, modifier = Modifier.background(theme.surface)) {
-                AvailableThemes.forEachIndexed { index, consoleTheme ->
-                    DropdownMenuItem(text = { Text(consoleTheme.name, color = if (currentThemeIndex == index) theme.primary else theme.text, fontFamily = theme.fontFamily) }, onClick = { onThemeChange(index); expandedTheme = false; playClick() })
+        ConsoleSectionHeader("Idioma e Região", theme)
+        ConsoleCard("Idioma do Sistema", currentLanguage, theme, { expandedLang = true; playClick() }) {
+            DropdownMenu(expanded = expandedLang, onDismissRequest = { expandedLang = false }, modifier = Modifier.background(theme.surface)) {
+                listOf("Português (PT-BR)", "English (US)").forEach { lang ->
+                    DropdownMenuItem(text = { Text(lang, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { onLanguageChange(lang); expandedLang = false; playClick() })
                 }
             }
         }
+
+        ConsoleSectionHeader("Personalização UI", theme)
         ConsoleCard("Preto AMOLED", "Fundo escuro absoluto (Adaptativo)", theme, { onAmoledToggle(!amoledBlack); playClick() }) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Forçar Preto AMOLED", color = theme.text, fontFamily = theme.fontFamily)
@@ -269,47 +381,25 @@ fun SystemPanel(
         }
 
         ConsoleSectionHeader("Sobre o Sistema", theme)
-        ConsoleCard("Odin Hub", "Versão 0.5", theme, playClick) {
+        ConsoleCard("Odin Hub", "Versão 0.5 - Desenvolvido por Seu Nome", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text("Desenvolvido por Seu Nome", color = theme.text, fontFamily = theme.fontFamily, fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Button(onClick = { playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
                         Text("GitHub", fontFamily = theme.fontFamily, color = Color.White)
                     }
                     Button(onClick = { playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) {
-                        Text("Procurar Atualizações", fontFamily = theme.fontFamily, color = theme.text)
+                        Text("Atualizações", fontFamily = theme.fontFamily, color = theme.text)
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Rever Animação de Inicialização", color = theme.primary, fontFamily = theme.fontFamily, modifier = Modifier.clickable { onReplayBoot() })
             }
-        }
-    }
-}
-
-@Composable
-fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("AutoTDP & Frequências", theme)
-
-        ConsoleCard("Modo de Energia Global", "Controle de limites do Pulse Engine", theme, playClick) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("Limite de TDP (W)", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = 15f, onValueChange = { }, valueRange = 5f..30f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-            }
-        }
-
-        ConsoleCard("Overrides de Jogo", "Configurar regras específicas", theme, playClick) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Habilitar Overrides", color = theme.text, fontFamily = theme.fontFamily)
-                ConsoleToggle(checked = uiState.appOverridesEnabled, theme = theme)
-            }
-            TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.appOverrides, description = R.string.appOverridesDescription) { playClick(); navigateToOverrideList() }
         }
     }
 }
 
 // ==========================================
-// COMPONENTES CUSTOMIZADOS (Design de Console)
+// COMPONENTES CUSTOMIZADOS (Estilo SteamOS)
 // ==========================================
 
 @Composable
@@ -324,11 +414,13 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
     val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(isFocused) {
-        if (isFocused) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) // Vibra ao focar pelo D-Pad
+        if (isFocused) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
-    val scale by animateFloatAsState(targetValue = if (isFocused) 1.02f else 1.0f, label = "cardScale")
-    val glow by animateDpAsState(targetValue = if (isFocused) 8.dp else 0.dp, label = "cardGlow")
+    // Animações imersivas de Console (Scale + Glow)
+    val scale by animateFloatAsState(targetValue = if (isFocused) 1.03f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
+    val glow by animateDpAsState(targetValue = if (isFocused) 12.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
+    val borderColor by animateColorAsState(targetValue = if (isFocused) theme.primary else Color.Transparent, label = "cardBorder")
 
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -336,8 +428,8 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .shadow(glow, RoundedCornerShape(12.dp), spotColor = theme.primary)
-            .border(if (isFocused) 2.dp else 1.dp, if (isFocused) theme.primary else Color.Transparent, RoundedCornerShape(12.dp))
+            .shadow(glow, RoundedCornerShape(12.dp), spotColor = theme.primary, ambientColor = theme.primary)
+            .border(2.dp, borderColor, RoundedCornerShape(12.dp))
             .focusable(interactionSource = interactionSource)
             .clickable(interactionSource = interactionSource, indication = null) { playClick() }
     ) {
@@ -350,7 +442,6 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
     }
 }
 
-// Substitui o Switch redondo do Android por um Toggle angular e moderno
 @Composable
 fun ConsoleToggle(checked: Boolean, theme: ConsoleTheme) {
     val thumbOffset by animateDpAsState(targetValue = if (checked) 24.dp else 4.dp, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "toggleMove")
