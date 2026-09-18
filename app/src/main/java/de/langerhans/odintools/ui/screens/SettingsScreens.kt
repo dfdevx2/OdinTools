@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -81,7 +82,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
     }
 
-    // Gerenciador de Ciclo de Vida: Pausa a BGM se o app for minimizado
     DisposableEffect(lifecycleOwner, bgmEnabled, showBootAnimation) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
@@ -117,7 +117,15 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(finalTheme.background)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        finalTheme.background,
+                        finalTheme.background.copy(alpha = 0.8f),
+                        Color.Black
+                    )
+                )
+            )
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     when (event.nativeKeyEvent.keyCode) {
@@ -178,7 +186,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                         onAmoledToggle = { useAmoledBlack = it; playSfx(R.raw.sfx_select) },
                         onBgmToggle = { bgmEnabled = it; playSfx(R.raw.sfx_select) }, onBgmVolume = { bgmVolume = it },
                         onSfxToggle = { sfxEnabled = it; playSfx(R.raw.sfx_select) }, onSfxVolume = { sfxVolume = it },
-                        onReplayBoot = { showBootAnimation = true }
+                        onReplayBoot = { showBootAnimation = true; playSfx(R.raw.sfx_select) }
                     )
                 }
             }
@@ -200,13 +208,13 @@ fun BootAndWelcomeScreen(theme: ConsoleTheme, onFinish: () -> Unit) {
 
     LaunchedEffect(Unit) {
         delay(300)
-        stage = 1 // Aparece o texto suavemente
+        stage = 1
         delay(800)
-        stage = 2 // Dispara o raio de luz passando pelas letras
+        stage = 2
         delay(1200)
-        stage = 3 // Texto dá um zoom agressivo para a tela e some
+        stage = 3
         delay(600)
-        stage = 4 // Revela a tela de Boas-Vindas
+        stage = 4
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
@@ -225,8 +233,8 @@ fun BootAndWelcomeScreen(theme: ConsoleTheme, onFinish: () -> Unit) {
                         drawRect(
                             brush = Brush.linearGradient(
                                 colors = listOf(Color.Transparent, Color.White.copy(alpha = textAlpha * 0.8f), Color.Transparent),
-                                start = androidx.compose.ui.geometry.Offset(glowPosition, 0f),
-                                end = androidx.compose.ui.geometry.Offset(glowPosition + 300f, 0f)
+                                start = Offset(glowPosition, 0f),
+                                end = Offset(glowPosition + 300f, 0f)
                             )
                         )
                     }
@@ -440,6 +448,10 @@ fun SystemPanel(
     }
 }
 
+// ==========================================
+// COMPONENTES CUSTOMIZADOS (Estilo Glassmorphism)
+// ==========================================
+
 @Composable
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
     Text(title.uppercase(), fontSize = 14.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = theme.text.copy(alpha = 0.5f), letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 4.dp).padding(top = 8.dp))
@@ -455,26 +467,37 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
         if (isFocused) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
-    val scale by animateFloatAsState(targetValue = if (isFocused) 1.03f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
-    val glow by animateDpAsState(targetValue = if (isFocused) 12.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
-    val borderColor by animateColorAsState(targetValue = if (isFocused) theme.primary else Color.Transparent, label = "cardBorder")
+    val scale by animateFloatAsState(targetValue = if (isFocused) 1.02f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
+    val glow by animateDpAsState(targetValue = if (isFocused) 16.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
+
+    val glassSurface = theme.surface.copy(alpha = 0.4f)
+    val subtleBorder = theme.text.copy(alpha = 0.15f)
+    val borderColor by animateColorAsState(targetValue = if (isFocused) theme.primary else subtleBorder, label = "cardBorder")
 
     Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = theme.surface),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = glassSurface),
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .shadow(glow, RoundedCornerShape(12.dp), spotColor = theme.primary, ambientColor = theme.primary)
-            .border(2.dp, borderColor, RoundedCornerShape(12.dp))
+            .shadow(glow, RoundedCornerShape(8.dp), spotColor = theme.primary, ambientColor = theme.primary)
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
             .focusable(interactionSource = interactionSource)
             .clickable(interactionSource = interactionSource, indication = null) { playClick() }
     ) {
         Column(modifier = Modifier.padding(vertical = 12.dp)) {
-            Text(title, fontSize = 18.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = if (isFocused) theme.primary else theme.text, modifier = Modifier.padding(horizontal = 16.dp))
-            Text(subtitle, fontSize = 13.sp, fontFamily = theme.fontFamily, color = theme.text.copy(alpha = 0.7f), modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp))
-            HorizontalDivider(color = theme.background, thickness = 2.dp)
-            content()
+            Text(title, fontSize = 16.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = if (isFocused) theme.primary else theme.text, modifier = Modifier.padding(horizontal = 16.dp))
+            if (subtitle.isNotEmpty()) {
+                Text(subtitle, fontSize = 12.sp, fontFamily = theme.fontFamily, color = theme.text.copy(alpha = 0.6f), modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp))
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            HorizontalDivider(color = theme.text.copy(alpha = 0.1f), thickness = 1.dp)
+
+            // A CORREÇÃO FOI FEITA AQUI: A Box foi substituída por Column
+            Column(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.2f))) {
+                content()
+            }
         }
     }
 }
