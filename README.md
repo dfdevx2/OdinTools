@@ -1,7 +1,7 @@
 # Odin Hub
 
 <p align="center">
-  <img src="OdinTools/assets/logo.png" width="180">
+  <img src="./assets/logo.png" width="180" alt="Odin Hub Logo">
 </p>
 
 A completely rebuilt, no-root console UI, performance tuner, and utility hub specifically optimized for the AYN Odin 3.
@@ -27,7 +27,7 @@ Odin Hub is a major evolution of the original OdinTools. It abandons the traditi
 
 ## 📥 Installation
 
-1. Download the latest `OdinHub_v0.5.apk` from the [Releases](#) page.
+1. Download the latest `OdinHub_v0.5.0.apk` from the [Releases](#) page.
 2. Install the APK on your AYN Odin 3.
 3. Grant **Usage Access** (for per-app profiles) and **Display over other apps** (for potential OSD overlays).
 4. *No Root or Magisk required.*
@@ -39,6 +39,7 @@ Odin Hub is built on the shoulders of giants. This project is a heavy modificati
 * **OdinTools** by [langerhans](https://github.com/langerhans/OdinTools): The original foundation, application overrides logic, and quick settings infrastructure.
 * **P.U.L.S.E.** by [keiretrogaming](https://github.com/keiretrogaming/pulse): The incredibly clever no-root `PServerBinder` exploit and AutoTDP engine that makes safe, deep hardware control possible on AYN devices.
 * **ClusterTune** by [AurelioB](https://github.com/AurelioB/ClusterTune): The original pioneer of the PServer sysfs technique.
+* **Overhaul & UI/UX Design** by dfdx047: Console interface, theming engine, audio mixing, and overall integration for the Odin Hub standard.
 
 ## 📝 License
 This project inherits and operates under the **MIT License** and **GNU General Public License v2.0** where applicable based on the source modules. Please see the `LICENSE` file for full details.
