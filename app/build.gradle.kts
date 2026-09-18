@@ -8,15 +8,15 @@ plugins {
 }
 
 android {
-    namespace = "de.langerhans.odintools"
+    namespace = "com.dfdx047.odinhub"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "de.langerhans.odintools"
+        applicationId = "com.dfdx047.odinhub"
         minSdk = 33
         targetSdk = 34
         versionCode = 11
-        versionName = "1.3.1"
+        versionName = "0.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

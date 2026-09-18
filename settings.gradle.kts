@@ -13,6 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "OdinTools"
+rootProject.name = "OdinHub"
 include(":app")
- 
