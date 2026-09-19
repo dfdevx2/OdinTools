@@ -461,8 +461,7 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
     var expandedProfile by remember { mutableStateOf(false) }
 
-    // Constrói a lista misturando os Padrões e os Salvos pelo Usuário + "Personalizado" invisível se estiver alterado
-    val baseProfiles = listOf("Power Save", "Balanced", "Smart", "Triple A", "Full")
+    val baseProfiles = listOf("Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock")
     val allProfiles = baseProfiles + uiState.savedCustomProfiles + if (uiState.performanceProfile == "Personalizado") listOf("Personalizado") else emptyList()
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -475,42 +474,54 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        ConsoleCard(if (isEn) "Performance Profile" else "Perfil de Performance", uiState.performanceProfile, theme, { expandedProfile = true; playClick() }) {
-            DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
-                allProfiles.distinct().forEach { profile ->
-                    DropdownMenuItem(
-                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
-                        onClick = { viewModel.updatePerformanceProfile(profile); expandedProfile = false; playClick() }
-                    )
-                }
-            }
-
-            // Exibe o botão de salvar caso o perfil atual seja "Personalizado"
-            if (uiState.performanceProfile == "Personalizado") {
-                Button(
-                    onClick = { viewModel.showSaveProfileDialog(); playClick() },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
-                ) {
-                    Text(if (isEn) "Save as Custom Profile..." else "Salvar como Perfil de Usuário...", fontFamily = theme.fontFamily, color = Color.White)
-                }
-            }
-        }
-
-        ConsoleSectionHeader(if (isEn) "Hardware Limits (Snapdragon 8 Elite)" else "Limites de Hardware (Snapdragon 8 Elite)", theme)
-        ConsoleCard(if (isEn) "Dynamic AutoTDP" else "AutoTDP Dinâmico", if (isEn) "Global Power Draw (W)" else "Controle de Corrente Máxima (W)", theme, playClick) {
+        ConsoleSectionHeader(if (isEn) "Intelligent AutoTDP" else "AutoTDP Inteligente", theme)
+        ConsoleCard(
+            title = if (isEn) "Dynamic AutoTDP Control" else "Controle Dinâmico AutoTDP",
+            subtitle = if (isEn) "Monitors FPS and automatically trims CPU/GPU clocks to hold your target framerate with minimal battery drain.\nPT: Monitora os quadros por segundo (FPS) e ajusta os clocks automaticamente para manter a fluidez com menor consumo de bateria." else "Monitora os quadros por segundo (FPS) e ajusta automaticamente os clocks para manter a fluidez com menor consumo de bateria.\nEN: Monitors FPS and trims clocks to hold framerate with minimal battery drain.",
+            theme = theme,
+            playClick = playClick
+        ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(if (isEn) "Limit: ${uiState.tdpValue.toInt()} W" else "Limite: ${uiState.tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(
                     value = uiState.tdpValue,
                     onValueChange = { viewModel.updateTdp(it) },
-                    valueRange = 3f..25f,
+                    valueRange = 5f..25f,
+                    steps = 20,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
             }
         }
 
-        ConsoleCard(if (isEn) "Absolute Manual Clocks" else "Travamento Manual (Clocks)", if (isEn) "Individual limits per cluster" else "Limites individuais por arquitetura", theme, playClick) {
+        ConsoleSectionHeader(if (isEn) "Energy & TDP Profiles" else "Perfis de TDP (Potência Energética)", theme)
+        ConsoleCard(if (isEn) "Performance Profile" else "Perfil de Performance", uiState.performanceProfile, theme, { expandedProfile = true; playClick() }) {
+            DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
+                allProfiles.distinct().forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
+                        onClick = {
+                            viewModel.updatePerformanceProfile(profile)
+                            if (profile.contains("5W")) viewModel.updateTdp(5f)
+                            else if (profile.contains("11W")) viewModel.updateTdp(11f)
+                            else if (profile.contains("14.5W")) viewModel.updateTdp(14.5f)
+                            expandedProfile = false
+                            playClick()
+                        }
+                    )
+                }
+            }
+
+            Button(
+                onClick = { viewModel.showSaveProfileDialog(); playClick() },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+            ) {
+                Text(if (isEn) "Save Current TDP as Custom Profile..." else "Salvar TDP Atual como Perfil Personalizado...", fontFamily = theme.fontFamily, color = Color.White)
+            }
+        }
+
+        ConsoleSectionHeader(if (isEn) "Hardware Limits & Underclock (Snapdragon 8 Elite)" else "Limites de Hardware e Underclock (Snapdragon 8 Elite)", theme)
+        ConsoleCard(if (isEn) "Absolute Manual Clocks" else "Travamento Manual (Clocks)", if (isEn) "Individual safe limits per cluster" else "Limites individuais seguros por arquitetura", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(if (isEn) "Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz" else "Núcleos de Performance (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(

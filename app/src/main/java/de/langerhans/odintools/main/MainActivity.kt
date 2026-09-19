@@ -12,18 +12,24 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
+import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.service.OdinHubService
 import de.langerhans.odintools.ui.screens.SettingsScreen
 import de.langerhans.odintools.appsettings.AppOverrideListScreen
 import de.langerhans.odintools.appsettings.AppOverridesScreen
+import de.langerhans.odintools.ui.screens.PerformanceScreen
 import de.langerhans.odintools.ui.screens.PermissionOnboardingWrapper
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var sharedPrefsRepo: SharedPrefsRepo
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Inicia o serviço em segundo plano caso as permissões já tenham sido concedidas anteriormente
+        // Inicia o serviço em segundo plano se a permissão de uso estiver ativa
         val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
         val mode = appOps.unsafeCheckOpNoThrow(
             AppOpsManager.OPSTR_GET_USAGE_STATS,
@@ -36,13 +42,34 @@ class MainActivity : ComponentActivity() {
             ContextCompat.startForegroundService(this, serviceIntent)
         }
 
-        // Interface do Compose blindada pelo Wrapper de Permissões
         setContent {
             PermissionOnboardingWrapper {
                 val navController = rememberNavController()
                 NavHost(navController = navController, startDestination = "settings") {
                     composable("settings") {
-                        SettingsScreen(navigateToOverrideList = { navController.navigate("override_list") })
+                        SettingsScreen(
+                            navigateToOverrideList = { navController.navigate("override_list") },
+                            navigateToPerformance = { navController.navigate("performance") }
+                        )
+                    }
+                    composable("performance") {
+                        PerformanceScreen(
+                            navigateBack = { navController.popBackStack() },
+                            savedCustomTdfs = sharedPrefsRepo.customTdpProfiles,
+                            onSaveCustomTdp = { name, watts ->
+                                val currentList = sharedPrefsRepo.customTdpProfiles.toMutableList()
+                                currentList.add(de.langerhans.odintools.models.CustomTdpProfile(name = name, watts = watts))
+                                sharedPrefsRepo.customTdpProfiles = currentList
+                            },
+                            onDeleteCustomTdp = { id ->
+                                val currentList = sharedPrefsRepo.customTdpProfiles.toMutableList()
+                                currentList.removeAll { it.id == id }
+                                sharedPrefsRepo.customTdpProfiles = currentList
+                            },
+                            onSelectTdp = { watts, profileName ->
+                                // Aqui faremos a chamada direta ao PerformanceManager futuramente
+                            }
+                        )
                     }
                     composable("override_list") {
                         AppOverrideListScreen(
