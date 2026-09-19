@@ -1,14 +1,14 @@
 package de.langerhans.odintools.ui.screens
 
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
-import android.media.MediaPlayer
-import android.view.KeyEvent
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.provider.MediaStore
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +46,8 @@ import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.ui.composables.*
 import de.langerhans.odintools.ui.theme.*
+import java.io.File
+
 @Composable
 fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrideList: () -> Unit) {
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
@@ -178,6 +180,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
     }
 }
+
 // ==========================================
 // TELA DE BOOT (OOBE)
 // ==========================================
@@ -225,6 +228,7 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
         )
     }
 }
+
 // ==========================================
 // ABAS E PAINEIS
 // ==========================================
@@ -237,6 +241,7 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -
         ConsoleTabItem(3, "SISTEMA", R.drawable.ic_app_settings, selectedTab, theme, onTabSelected)
     }
 }
+
 @Composable
 fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, theme: ConsoleTheme, onClick: (Int) -> Unit) {
     val isSelected = selectedTab == index
@@ -251,6 +256,7 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
         Box(modifier = Modifier.height(3.dp).width(24.dp).clip(RoundedCornerShape(50)).background(if (isSelected) theme.primary else Color.Transparent))
     }
 }
+
 @Composable
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
     var tdpValue by remember { mutableFloatStateOf(15f) }
@@ -291,6 +297,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
         }
     }
 }
+
 @Composable
 fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
     var satValue by remember { mutableFloatStateOf(1.0f) }
@@ -316,6 +323,7 @@ fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
         }
     }
 }
+
 @Composable
 fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, playClick: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -332,6 +340,7 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
         }
     }
 }
+
 @Composable
 fun SystemPanel(
     theme: ConsoleTheme, currentThemeIndex: Int, currentLanguage: String, amoledBlack: Boolean,
@@ -345,6 +354,20 @@ fun SystemPanel(
     var liveWallpaperType by remember { mutableStateOf("Static") }
     var blurEnabled by remember { mutableStateOf(false) }
     var blurIntensity by remember { mutableFloatStateOf(0.5f) }
+    var selectedWallpaper by remember { mutableStateOf("static_wallpaper_1.png") }
+    val context = LocalContext.current
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            // Handle the selected image URI
+            selectedWallpaper = it.toString()
+        }
+    }
+    val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            // Handle the selected video URI
+            selectedWallpaper = it.toString()
+        }
+    }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Idioma e Região", theme)
         ConsoleCard("Idioma do Sistema", currentLanguage, theme, { expandedLang = true; playClick() }) {
@@ -402,6 +425,20 @@ fun SystemPanel(
             }
             Slider(value = blurIntensity, onValueChange = { blurIntensity = it }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
         }
+        ConsoleCard("Wallpaper", "Selecionar Wallpaper", theme, playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("Wallpaper Selecionado: $selectedWallpaper", color = theme.text, fontFamily = theme.fontFamily)
+                Button(onClick = {
+                    if (liveWallpaperType == "Static") {
+                        imagePickerLauncher.launch("image/*")
+                    } else {
+                        videoPickerLauncher.launch("video/*")
+                    }
+                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
+                    Text("Selecionar", fontFamily = theme.fontFamily, color = Color.White)
+                }
+            }
+        }
         ConsoleSectionHeader("Sobre o Sistema", theme)
         ConsoleCard("Odin Hub", "Versão 0.5 - Desenvolvido por Seu Nome", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -419,6 +456,7 @@ fun SystemPanel(
         }
     }
 }
+
 // ==========================================
 // COMPONENTES CUSTOMIZADOS (Estilo Glassmorphism)
 // ==========================================
@@ -426,6 +464,7 @@ fun SystemPanel(
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
     Text(title.uppercase(), fontSize = 14.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = theme.text.copy(alpha = 0.5f), letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 4.dp).padding(top = 8.dp))
 }
+
 @Composable
 fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -465,6 +504,7 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
         }
     }
 }
+
 @Composable
 fun ConsoleToggle(checked: Boolean, theme: ConsoleTheme, onCheckedChange: (Boolean) -> Unit) {
     val thumbOffset by animateDpAsState(targetValue = if (checked) 24.dp else 4.dp, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "toggleMove")
