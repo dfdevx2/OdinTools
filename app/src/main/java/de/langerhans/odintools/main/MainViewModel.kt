@@ -67,22 +67,61 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    // ==========================================
+    // CONTROLES DE PERFORMANCE & PERFIS
+    // ==========================================
     fun updatePerformanceProfile(profile: String) {
         _uiState.update { it.copy(performanceProfile = profile) }
-        performanceManager.applyProfile(profile)
+        when (profile) {
+            "Power Save" -> {
+                // Força os sliders para o visual correto do Power Save
+                _uiState.update { it.copy(tdpValue = 5f, cpuPerfClock = 1735f, cpuPrimeClock = 2246f, gpuClock = 160f) }
+                performanceManager.applyAbsoluteClocks(1735000L, 2246000L, 160000000L)
+            }
+            "Balanced" -> {
+                _uiState.update { it.copy(tdpValue = 10f) }
+                performanceManager.applyDynamicTdp(10f)
+            }
+            "Triple A" -> {
+                _uiState.update { it.copy(tdpValue = 15f) }
+                performanceManager.applyDynamicTdp(15f)
+            }
+            "Full" -> {
+                _uiState.update { it.copy(tdpValue = 25f, cpuPerfClock = 3530f, cpuPrimeClock = 4320f, gpuClock = 1100f) }
+                performanceManager.applyAbsoluteClocks(3530000L, 4320000L, 1100000000L)
+            }
+            "Smart" -> {
+                val currentTdp = _uiState.value.tdpValue
+                performanceManager.applyDynamicTdp(currentTdp)
+            }
+            else -> {
+                // Perfil Customizado Salvo pelo Usuário (Futuro carregamento de DB, aplica estado atual por hora)
+            }
+        }
     }
 
-    fun updateUseRoot(useRoot: Boolean) {
-        _uiState.update { it.copy(useRootTarget = useRoot) }
+    // Intervenção manual sempre muda o perfil para "Personalizado"
+    fun updateTdp(watts: Float, isManualAction: Boolean = true) {
+        _uiState.update {
+            it.copy(
+                tdpValue = watts,
+                performanceProfile = if (isManualAction && it.performanceProfile != "Smart") "Personalizado" else it.performanceProfile
+            )
+        }
+        if (_uiState.value.performanceProfile == "Smart" || isManualAction) {
+            performanceManager.applyDynamicTdp(watts)
+        }
     }
 
-    fun updateTdp(watts: Float) {
-        _uiState.update { it.copy(tdpValue = watts) }
-        performanceManager.applyDynamicTdp(watts)
-    }
-
-    fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
-        _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
+    fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float, isManualAction: Boolean = true) {
+        _uiState.update {
+            it.copy(
+                cpuPerfClock = perfClock,
+                cpuPrimeClock = primeClock,
+                gpuClock = gpuClock,
+                performanceProfile = if (isManualAction) "Personalizado" else it.performanceProfile
+            )
+        }
         performanceManager.applyAbsoluteClocks(
             perfClockKHz = (perfClock * 1000).toLong(),
             primeClockKHz = (primeClock * 1000).toLong(),
@@ -90,6 +129,37 @@ class MainViewModel @Inject constructor(
         )
     }
 
+    fun updateUseRoot(useRoot: Boolean) {
+        _uiState.update { it.copy(useRootTarget = useRoot) }
+        executor.forceKernelSU = useRoot
+    }
+
+    fun showSaveProfileDialog() {
+        _uiState.update { it.copy(showSaveProfileDialog = true) }
+    }
+
+    fun dismissSaveProfileDialog() {
+        _uiState.update { it.copy(showSaveProfileDialog = false) }
+    }
+
+    fun saveCustomProfile(profileName: String) {
+        if (profileName.isNotBlank() && !uiState.value.savedCustomProfiles.contains(profileName)) {
+            val updatedList = uiState.value.savedCustomProfiles + profileName
+            _uiState.update {
+                it.copy(
+                    savedCustomProfiles = updatedList,
+                    performanceProfile = profileName,
+                    showSaveProfileDialog = false
+                )
+            }
+        } else {
+            _uiState.update { it.copy(showSaveProfileDialog = false) }
+        }
+    }
+
+    // ==========================================
+    // MÉTODOS ORIGINAIS DO ODINTOOLS
+    // ==========================================
     fun incompatibleDeviceDialogDismissed() {
         _uiState.update { current -> current.copy(showIncompatibleDeviceDialog = false) }
     }

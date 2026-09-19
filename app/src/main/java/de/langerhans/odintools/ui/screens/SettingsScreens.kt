@@ -130,6 +130,36 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 
     DisposableEffect(Unit) { onDispose { bgmPlayer.release() } }
 
+    // Modal de Salvar Perfil de Usuário
+    if (uiState.showSaveProfileDialog) {
+        var profileName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissSaveProfileDialog() },
+            title = { Text(if (isEn) "Save Custom Profile" else "Salvar Perfil Personalizado", fontFamily = finalTheme.fontFamily) },
+            text = {
+                OutlinedTextField(
+                    value = profileName,
+                    onValueChange = { profileName = it },
+                    label = { Text(if (isEn) "Profile Name" else "Nome do Perfil", fontFamily = finalTheme.fontFamily) },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.saveCustomProfile(profileName); playSfx(R.raw.sfx_select) }) {
+                    Text(if (isEn) "Save" else "Salvar", color = finalTheme.primary, fontFamily = finalTheme.fontFamily)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissSaveProfileDialog() }) {
+                    Text(if (isEn) "Cancel" else "Cancelar", color = finalTheme.text, fontFamily = finalTheme.fontFamily)
+                }
+            },
+            containerColor = finalTheme.surface,
+            titleContentColor = finalTheme.text,
+            textContentColor = finalTheme.text
+        )
+    }
+
     if (showWelcomeSetup) {
         WelcomeScreen(
             theme = finalTheme,
@@ -315,30 +345,21 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     }
 }
 
-// ==========================================
-// RENDERIZADORES DE WALLPAPER CORRIGIDOS
-// ==========================================
 @Composable
 fun LiveWallpaperRenderer(uri: Uri) {
     val context = LocalContext.current
-
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_ALL
             volume = 0f
         }
     }
-
     LaunchedEffect(uri) {
         exoPlayer.setMediaItem(MediaItem.fromUri(uri))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
     }
-
-    DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
-    }
-
+    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
@@ -355,7 +376,6 @@ fun LiveWallpaperRenderer(uri: Uri) {
 fun StaticWallpaperRenderer(resId: Int?, uri: Uri?, blurModifier: Modifier = Modifier) {
     val context = LocalContext.current
     var bitmap by remember(resId, uri) { mutableStateOf<ImageBitmap?>(null) }
-
     LaunchedEffect(resId, uri) {
         withContext(Dispatchers.IO) {
             try {
@@ -376,14 +396,8 @@ fun StaticWallpaperRenderer(resId: Int?, uri: Uri?, blurModifier: Modifier = Mod
             }
         }
     }
-
     bitmap?.let {
-        Image(
-            bitmap = it,
-            contentDescription = "Static Wallpaper",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().then(blurModifier)
-        )
+        Image(bitmap = it, contentDescription = "Static Wallpaper", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().then(blurModifier))
     }
 }
 
@@ -398,16 +412,12 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
             playWhenReady = true
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) {
-                        onVideoEnded()
-                    }
+                    if (playbackState == Player.STATE_ENDED) onVideoEnded()
                 }
             })
         }
     }
-    DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
-    }
+    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
@@ -422,9 +432,6 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
     }
 }
 
-// ==========================================
-// ABAS E PAINEIS (COM SUPORTE A IDIOMA)
-// ==========================================
 @Composable
 fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, isEn: Boolean, onTabSelected: (Int) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -453,7 +460,10 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 @Composable
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
     var expandedProfile by remember { mutableStateOf(false) }
-    val profiles = listOf("Power Save", "Balanced", "Smart", "Triple A", "Full")
+
+    // Constrói a lista misturando os Padrões e os Salvos pelo Usuário + "Personalizado" invisível se estiver alterado
+    val baseProfiles = listOf("Power Save", "Balanced", "Smart", "Triple A", "Full")
+    val allProfiles = baseProfiles + uiState.savedCustomProfiles + if (uiState.performanceProfile == "Personalizado") listOf("Personalizado") else emptyList()
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
@@ -467,11 +477,22 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 
         ConsoleCard(if (isEn) "Performance Profile" else "Perfil de Performance", uiState.performanceProfile, theme, { expandedProfile = true; playClick() }) {
             DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
-                profiles.forEach { profile ->
+                allProfiles.distinct().forEach { profile ->
                     DropdownMenuItem(
                         text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
                         onClick = { viewModel.updatePerformanceProfile(profile); expandedProfile = false; playClick() }
                     )
+                }
+            }
+
+            // Exibe o botão de salvar caso o perfil atual seja "Personalizado"
+            if (uiState.performanceProfile == "Personalizado") {
+                Button(
+                    onClick = { viewModel.showSaveProfileDialog(); playClick() },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+                ) {
+                    Text(if (isEn) "Save as Custom Profile..." else "Salvar como Perfil de Usuário...", fontFamily = theme.fontFamily, color = Color.White)
                 }
             }
         }
@@ -495,7 +516,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 Slider(
                     value = uiState.cpuPerfClock,
                     onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) },
-                    valueRange = 800f..3530f,
+                    valueRange = 1735f..3530f,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
 
@@ -505,7 +526,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 Slider(
                     value = uiState.cpuPrimeClock,
                     onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) },
-                    valueRange = 1000f..4320f,
+                    valueRange = 2246f..4320f,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
 
@@ -515,7 +536,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 Slider(
                     value = uiState.gpuClock,
                     onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) },
-                    valueRange = 300f..1100f,
+                    valueRange = 160f..1100f,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
             }
@@ -704,9 +725,6 @@ fun SystemPanel(
     }
 }
 
-// ==========================================
-// COMPONENTES CUSTOMIZADOS
-// ==========================================
 @Composable
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
     Text(title.uppercase(), fontSize = 14.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = theme.text.copy(alpha = 0.5f), letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 4.dp).padding(top = 8.dp))

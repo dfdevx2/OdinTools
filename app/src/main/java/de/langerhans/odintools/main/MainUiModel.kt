@@ -5,7 +5,7 @@ import de.langerhans.odintools.models.L2R2Style
 import de.langerhans.odintools.tools.DeviceType
 
 data class MainUiModel(
-    val deviceType: DeviceType = DeviceType.ODIN2, // Corrigido de UNKNOWN para ODIN2
+    val deviceType: DeviceType = DeviceType.ODIN2,
     val deviceVersion: String = "",
     val showIncompatibleDeviceDialog: Boolean = false,
     val showPServerNotAvailableDialog: Boolean = false,
@@ -30,18 +30,19 @@ data class MainUiModel(
     val chargeLimitEnabled: Boolean = false,
     val currentChargeLimit: ClosedRange<Int> = 20..80,
 
-    // Variáveis do Cérebro de Performance
+    // Variáveis do Cérebro de Performance (Novos Limites Reais SD8 Elite)
     val performanceProfile: String = "Smart",
+    val savedCustomProfiles: List<String> = emptyList(), // Perfis criados pelo usuário
+    val showSaveProfileDialog: Boolean = false,
     val useRootTarget: Boolean = true,
     val tdpValue: Float = 15f,
-    val cpuPerfClock: Float = 3530f,
-    val cpuPrimeClock: Float = 4320f,
-    val gpuClock: Float = 1100f
+    val cpuPerfClock: Float = 3530f, // Range real: 1735 - 3530
+    val cpuPrimeClock: Float = 4320f, // Range real: 2246 - 4320
+    val gpuClock: Float = 1100f // Range real: 160 - 1100
 )
 
-// Isso resolve os 32 erros do MainViewModel
 data class CheckboxPreferenceUiModel(
     val key: String,
     val text: Int,
-    var checked: Boolean // <-- O segredo está aqui: mudar de 'val' para 'var'
+    var checked: Boolean
 )
