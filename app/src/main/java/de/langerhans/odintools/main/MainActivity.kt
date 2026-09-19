@@ -2,11 +2,8 @@ package de.langerhans.odintools.main
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.os.Process
-import android.provider.Settings
 import android.app.AppOpsManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,41 +12,49 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
+import de.langerhans.odintools.service.OdinHubService
 import de.langerhans.odintools.ui.screens.SettingsScreen
 import de.langerhans.odintools.appsettings.AppOverrideListScreen
 import de.langerhans.odintools.appsettings.AppOverridesScreen
+import de.langerhans.odintools.ui.screens.PermissionOnboardingWrapper
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Solicita permissão de Notificação no Android 13+ de forma segura
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                runCatching {
-                    requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-                }
-            }
+        // Inicia o serviço em segundo plano caso as permissões já tenham sido concedidas anteriormente
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = appOps.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            packageName
+        )
+
+        if (mode == AppOpsManager.MODE_ALLOWED) {
+            val serviceIntent = Intent(this, OdinHubService::class.java)
+            ContextCompat.startForegroundService(this, serviceIntent)
         }
 
-        // 2. Interface do Compose com as rotas e tipos corrigidos
+        // Interface do Compose blindada pelo Wrapper de Permissões
         setContent {
-            val navController = rememberNavController()
-            NavHost(navController = navController, startDestination = "settings") {
-                composable("settings") {
-                    SettingsScreen(navigateToOverrideList = { navController.navigate("override_list") })
-                }
-                composable("override_list") {
-                    AppOverrideListScreen(
-                        navigateToOverrides = { packageName: String ->
-                            navController.navigate("override/$packageName")
-                        }
-                    )
-                }
-                composable("override/{packageName}") { backStackEntry ->
-                    val packageName = backStackEntry.arguments?.getString("packageName")
-                    AppOverridesScreen(navigateBack = { navController.popBackStack() })
+            PermissionOnboardingWrapper {
+                val navController = rememberNavController()
+                NavHost(navController = navController, startDestination = "settings") {
+                    composable("settings") {
+                        SettingsScreen(navigateToOverrideList = { navController.navigate("override_list") })
+                    }
+                    composable("override_list") {
+                        AppOverrideListScreen(
+                            navigateToOverrides = { packageName: String ->
+                                navController.navigate("override/$packageName")
+                            }
+                        )
+                    }
+                    composable("override/{packageName}") { backStackEntry ->
+                        val packageName = backStackEntry.arguments?.getString("packageName")
+                        AppOverridesScreen(navigateBack = { navController.popBackStack() })
+                    }
                 }
             }
         }
