@@ -1,13 +1,13 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package de.langerhans.odintools.ui.screens
 
-import android.content.Intent
 import android.graphics.ImageDecoder
 import android.media.MediaPlayer
 import android.net.Uri
-import android.os.Bundle
-import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -51,40 +51,44 @@ import de.langerhans.odintools.R
 import de.langerhans.odintools.main.MainUiModel
 import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.SettingsRepo
+import de.langerhans.odintools.ui.WelcomeScreen
 import de.langerhans.odintools.ui.composables.*
 import de.langerhans.odintools.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 @Composable
 fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrideList: () -> Unit) {
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var isFirstRun by remember { mutableStateOf(true) }
-    var showBootAnimation by remember { mutableStateOf(isFirstRun) }
+
+    // Controle de Fluxo Isolado
+    var showWelcomeSetup by remember { mutableStateOf(isFirstRun) }
+    var showBootAnimation by remember { mutableStateOf(false) }
+
     var currentThemeIndex by remember { mutableIntStateOf(1) }
     var useAmoledBlack by remember { mutableStateOf(false) }
     var currentLanguage by remember { mutableStateOf("Português (PT-BR)") }
     val rawTheme = AvailableThemes[currentThemeIndex]
     val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
 
-    // Estados de Áudio
     var bgmEnabled by remember { mutableStateOf(true) }
     var bgmVolume by remember { mutableFloatStateOf(0.3f) }
     var sfxEnabled by remember { mutableStateOf(true) }
     var sfxVolume by remember { mutableFloatStateOf(0.8f) }
 
-    // URIs padrão corretas apontando para os recursos locais (Drawable e Raw)
     val context = LocalContext.current
-    val defaultStaticUri = remember { Uri.parse("android.resource://${context.packageName}/drawable/static_wallpaper_1") }
+    val defaultStaticRes = R.drawable.static_wallpaper_1
     val defaultVideoUri = remember { Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}") }
 
     var liveWallpaperType by remember { mutableStateOf("Static") }
     var blurEnabled by remember { mutableStateOf(true) }
     var blurIntensity by remember { mutableFloatStateOf(0.4f) }
     var wallpaperOpacity by remember { mutableFloatStateOf(0.85f) }
-    var selectedWallpaperUri by remember { mutableStateOf<Uri?>(defaultStaticUri) }
+
+    var selectedStaticRes by remember { mutableIntStateOf(defaultStaticRes) }
+    var selectedCustomUri by remember { mutableStateOf<Uri?>(null) }
     var selectedWallpaperName by remember { mutableStateOf("Predefinição 1") }
 
     val haptic = LocalHapticFeedback.current
@@ -101,13 +105,10 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
     }
 
-    // Reatividade de Áudio em Tempo Real
-    LaunchedEffect(bgmVolume) {
-        bgmPlayer.setVolume(bgmVolume, bgmVolume)
-    }
+    LaunchedEffect(bgmVolume) { bgmPlayer.setVolume(bgmVolume, bgmVolume) }
 
-    LaunchedEffect(bgmEnabled, showBootAnimation) {
-        if (bgmEnabled && !showBootAnimation) {
+    LaunchedEffect(bgmEnabled, showWelcomeSetup, showBootAnimation) {
+        if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) {
             if (!bgmPlayer.isPlaying) bgmPlayer.start()
         } else {
             if (bgmPlayer.isPlaying) bgmPlayer.pause()
@@ -119,17 +120,40 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
                 if (bgmPlayer.isPlaying) bgmPlayer.pause()
             } else if (event == Lifecycle.Event.ON_RESUME) {
-                if (bgmEnabled && !showBootAnimation) bgmPlayer.start()
+                if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) bgmPlayer.start()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    DisposableEffect(Unit) {
-        onDispose { bgmPlayer.release() }
+    DisposableEffect(Unit) { onDispose { bgmPlayer.release() } }
+
+    // Roteamento Modular: Chama a Tela de Boas-Vindas do arquivo WelcomeScreen.kt
+    if (showWelcomeSetup) {
+        WelcomeScreen(
+            theme = finalTheme,
+            currentThemeIndex = currentThemeIndex,
+            currentLanguage = currentLanguage,
+            bgmEnabled = bgmEnabled,
+            bgmVolume = bgmVolume,
+            sfxEnabled = sfxEnabled,
+            sfxVolume = sfxVolume,
+            onThemeChange = { currentThemeIndex = it },
+            onLanguageChange = { currentLanguage = it },
+            onBgmToggle = { bgmEnabled = it },
+            onBgmVolume = { bgmVolume = it },
+            onSfxToggle = { sfxEnabled = it },
+            onSfxVolume = { sfxVolume = it },
+            onFinish = {
+                showWelcomeSetup = false
+                showBootAnimation = true
+            }
+        )
+        return
     }
 
+    // Roteamento Modular: Tela de Boot
     if (showBootAnimation) {
         VideoBootScreen(
             theme = finalTheme,
@@ -142,46 +166,46 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         return
     }
 
+    // Camada Principal (Odin Hub)
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. Cor Base do Tema
         Box(modifier = Modifier.fillMaxSize().background(finalTheme.background))
 
-        // 2. Camada Inteligente de Wallpaper (Evoluída com Blur Nativo para Imagens e Frosted Glass para Vídeos)
-        if (selectedWallpaperUri != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(wallpaperOpacity)
-            ) {
-                if (liveWallpaperType == "Live (MP4)") {
-                    LiveWallpaperRenderer(uri = selectedWallpaperUri!!)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(wallpaperOpacity)
+        ) {
+            if (liveWallpaperType == "Live (MP4)") {
+                val activeVideoUri = if (selectedCustomUri != null && selectedCustomUri.toString().startsWith("content://")) {
+                    selectedCustomUri!!
+                } else {
+                    defaultVideoUri
+                }
+                LiveWallpaperRenderer(uri = activeVideoUri)
 
-                    // Frosted Glass Dinâmico para Vídeo (pois SurfaceView ignora .blur() do Compose)
-                    if (blurEnabled) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Black.copy(alpha = 0.2f + (blurIntensity * 0.5f)),
-                                            Color.Black.copy(alpha = 0.4f + (blurIntensity * 0.5f))
-                                        )
+                if (blurEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Black.copy(alpha = 0.2f + (blurIntensity * 0.5f)),
+                                        Color.Black.copy(alpha = 0.4f + (blurIntensity * 0.5f))
                                     )
                                 )
-                        )
-                    }
-                } else {
-                    // Blur Real e Nativo para Imagens Estáticas
-                    StaticWallpaperRenderer(
-                        uri = selectedWallpaperUri!!,
-                        blurModifier = if (blurEnabled) Modifier.blur((blurIntensity * 40).dp) else Modifier
+                            )
                     )
                 }
+            } else {
+                StaticWallpaperRenderer(
+                    resId = if (selectedCustomUri == null) selectedStaticRes else null,
+                    uri = if (selectedCustomUri != null) selectedCustomUri else null,
+                    blurModifier = if (blurEnabled) Modifier.blur((blurIntensity * 40).dp) else Modifier
+                )
             }
         }
 
-        // 3. Gradiente de Contraste para Leitura Perfeita da UI
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -195,7 +219,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                 )
         )
 
-        // 4. Camada Principal de Interface e Navegação por Botões de Hardware
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -259,21 +282,33 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                             onAmoledToggle = { useAmoledBlack = it; playSfx(R.raw.sfx_select) },
                             onBgmToggle = { bgmEnabled = it; playSfx(R.raw.sfx_select) }, onBgmVolume = { bgmVolume = it },
                             onSfxToggle = { sfxEnabled = it; playSfx(R.raw.sfx_select) }, onSfxVolume = { sfxVolume = it },
-                            onReplayBoot = { showBootAnimation = true; playSfx(R.raw.sfx_select) },
+                            onReplayBoot = { showWelcomeSetup = true; playSfx(R.raw.sfx_select) },
                             onLiveWallpaperTypeChange = { type ->
                                 liveWallpaperType = type
                                 if (type == "Live (MP4)") {
-                                    selectedWallpaperUri = defaultVideoUri
+                                    selectedCustomUri = null
                                     selectedWallpaperName = "Live Wallpaper Padrão"
                                 } else {
-                                    selectedWallpaperUri = defaultStaticUri
+                                    selectedCustomUri = null
+                                    selectedStaticRes = R.drawable.static_wallpaper_1
                                     selectedWallpaperName = "Predefinição 1"
                                 }
                             },
                             onBlurToggle = { blurEnabled = it; playSfx(R.raw.sfx_select) }, onBlurIntensityChange = { blurIntensity = it },
                             onWallpaperOpacityChange = { wallpaperOpacity = it },
-                            onWallpaperSelected = { uri, name -> selectedWallpaperUri = uri; selectedWallpaperName = name },
-                            onSelectPreset = { uri, name -> selectedWallpaperUri = uri; selectedWallpaperName = name }
+                            onPresetStaticSelected = { resId, name ->
+                                selectedCustomUri = null
+                                selectedStaticRes = resId
+                                selectedWallpaperName = name
+                            },
+                            onPresetVideoSelected = {
+                                selectedCustomUri = null
+                                selectedWallpaperName = "Live Wallpaper Padrão"
+                            },
+                            onCustomUriSelected = { uri, name ->
+                                selectedCustomUri = uri
+                                selectedWallpaperName = name
+                            }
                         )
                     }
                 }
@@ -283,7 +318,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 }
 
 // ==========================================
-// RENDERIZADORES DE WALLPAPER ROBUSTOS
+// RENDERIZADORES DE WALLPAPER
 // ==========================================
 @Composable
 fun LiveWallpaperRenderer(uri: Uri) {
@@ -297,9 +332,17 @@ fun LiveWallpaperRenderer(uri: Uri) {
             playWhenReady = true
         }
     }
+
+    LaunchedEffect(uri) {
+        exoPlayer.setMediaItem(MediaItem.fromUri(uri))
+        exoPlayer.prepare()
+        exoPlayer.play()
+    }
+
     DisposableEffect(uri) {
         onDispose { exoPlayer.release() }
     }
+
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
@@ -313,26 +356,22 @@ fun LiveWallpaperRenderer(uri: Uri) {
 }
 
 @Composable
-fun StaticWallpaperRenderer(uri: Uri, blurModifier: Modifier = Modifier) {
+fun StaticWallpaperRenderer(resId: Int?, uri: Uri?, blurModifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var bitmap by remember(uri) { mutableStateOf<ImageBitmap?>(null) }
+    var bitmap by remember(resId, uri) { mutableStateOf<ImageBitmap?>(null) }
 
-    LaunchedEffect(uri) {
+    LaunchedEffect(resId, uri) {
         withContext(Dispatchers.IO) {
             try {
-                if (uri.scheme == "android.resource" && uri.pathSegments.contains("drawable")) {
-                    val resName = uri.lastPathSegment
-                    val resId = context.resources.getIdentifier(resName, "drawable", context.packageName)
-                    if (resId != 0) {
-                        val drawable = ContextCompat.getDrawable(context, resId)
-                        if (drawable is android.graphics.drawable.BitmapDrawable) {
-                            bitmap = drawable.bitmap.asImageBitmap()
-                        } else {
-                            val source = ImageDecoder.createSource(context.resources, resId)
-                            bitmap = ImageDecoder.decodeBitmap(source).asImageBitmap()
-                        }
+                if (resId != null) {
+                    val drawable = ContextCompat.getDrawable(context, resId)
+                    if (drawable is android.graphics.drawable.BitmapDrawable) {
+                        bitmap = drawable.bitmap.asImageBitmap()
+                    } else if (drawable != null) {
+                        val source = ImageDecoder.createSource(context.resources, resId)
+                        bitmap = ImageDecoder.decodeBitmap(source).asImageBitmap()
                     }
-                } else {
+                } else if (uri != null) {
                     val source = ImageDecoder.createSource(context.contentResolver, uri)
                     bitmap = ImageDecoder.decodeBitmap(source).asImageBitmap()
                 }
@@ -512,8 +551,10 @@ fun SystemPanel(
     playClick: () -> Unit, onThemeChange: (Int) -> Unit, onLanguageChange: (String) -> Unit, onAmoledToggle: (Boolean) -> Unit,
     onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit, onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit,
     onReplayBoot: () -> Unit, onLiveWallpaperTypeChange: (String) -> Unit, onBlurToggle: (Boolean) -> Unit,
-    onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit, onWallpaperSelected: (Uri, String) -> Unit,
-    onSelectPreset: (Uri, String) -> Unit
+    onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit,
+    onPresetStaticSelected: (Int, String) -> Unit,
+    onPresetVideoSelected: () -> Unit,
+    onCustomUriSelected: (Uri, String) -> Unit
 ) {
     var expandedLang by remember { mutableStateOf(false) }
     var expandedTheme by remember { mutableStateOf(false) }
@@ -521,11 +562,11 @@ fun SystemPanel(
     val context = LocalContext.current
 
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { onWallpaperSelected(it, "Imagem Personalizada") }
+        uri?.let { onCustomUriSelected(it, "Imagem Personalizada") }
     }
 
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { onWallpaperSelected(it, "Vídeo Personalizado (.MP4)") }
+        uri?.let { onCustomUriSelected(it, "Vídeo Personalizado (.MP4)") }
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -577,9 +618,6 @@ fun SystemPanel(
                     DropdownMenuItem(text = { Text(type, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { onLiveWallpaperTypeChange(type); expandedWallType = false; playClick() })
                 }
             }
-            if (liveWallpaperType == "Live (MP4)") {
-                Text("AVISO: Certifique-se de usar vídeos no formato .MP4", color = theme.primary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-            }
         }
         ConsoleCard("Ajustes de Blur e Opacidade", "Controlar visibilidade do fundo", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -598,27 +636,24 @@ fun SystemPanel(
                 if (liveWallpaperType == "Static") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
-                            val uri = Uri.parse("android.resource://${context.packageName}/drawable/static_wallpaper_1")
-                            onSelectPreset(uri, "Predefinição 1")
+                            onPresetStaticSelected(R.drawable.static_wallpaper_1, "static_wallpaper_1.png")
                             playClick()
                         }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                            Text("Predefinição 1", fontFamily = theme.fontFamily, color = Color.White)
+                            Text("Wallpaper 1", fontFamily = theme.fontFamily, color = Color.White)
                         }
                         Button(onClick = {
-                            val uri = Uri.parse("android.resource://${context.packageName}/drawable/static_wallpaper_2")
-                            onSelectPreset(uri, "Predefinição 2")
+                            onPresetStaticSelected(R.drawable.static_wallpaper_2, "static_wallpaper_2.png")
                             playClick()
                         }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                            Text("Predefinição 2", fontFamily = theme.fontFamily, color = Color.White)
+                            Text("Wallpaper 2", fontFamily = theme.fontFamily, color = Color.White)
                         }
                     }
                 } else {
                     Button(onClick = {
-                        val uri = Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}")
-                        onSelectPreset(uri, "Live Wallpaper Padrão")
+                        onPresetVideoSelected()
                         playClick()
                     }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                        Text("Usar Live Wallpaper Padrão", fontFamily = theme.fontFamily, color = Color.White)
+                        Text("Live Wallpaper Padrão", fontFamily = theme.fontFamily, color = Color.White)
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -631,18 +666,9 @@ fun SystemPanel(
             }
         }
         ConsoleSectionHeader("Sobre o Sistema", theme)
-        ConsoleCard("Odin Hub", "Versão 0.5 - Desenvolvido por dfdx047", theme, playClick) {
+        ConsoleCard("Odin Hub", "Versão 0.5", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Button(onClick = { playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                        Text("GitHub", fontFamily = theme.fontFamily, color = Color.White)
-                    }
-                    Button(onClick = { playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) {
-                        Text("Atualizações", fontFamily = theme.fontFamily, color = theme.text)
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Rever Animação de Inicialização", color = theme.primary, fontFamily = theme.fontFamily, modifier = Modifier.clickable { onReplayBoot() })
+                Text("Rever Tela de Boas-Vindas", color = theme.primary, fontFamily = theme.fontFamily, modifier = Modifier.clickable { onReplayBoot() })
             }
         }
     }
