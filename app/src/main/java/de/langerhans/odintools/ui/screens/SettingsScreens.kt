@@ -179,7 +179,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                 } else {
                     defaultVideoUri
                 }
-                // Agora o LiveWallpaperRenderer recebe o URI externamente e muda de mídia sem recriar o player
                 LiveWallpaperRenderer(uri = activeVideoUri)
 
                 if (blurEnabled) {
@@ -323,7 +322,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 fun LiveWallpaperRenderer(uri: Uri) {
     val context = LocalContext.current
 
-    // O segredo: instanciar o ExoPlayer apenas UMA VEZ
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_ALL
@@ -331,7 +329,6 @@ fun LiveWallpaperRenderer(uri: Uri) {
         }
     }
 
-    // O LaunchedEffect atualiza a mídia e dá o Play sempre que o URI mudar (não congela mais!)
     LaunchedEffect(uri) {
         exoPlayer.setMediaItem(MediaItem.fromUri(uri))
         exoPlayer.prepare()
@@ -455,36 +452,76 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 
 @Composable
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
-    var tdpValue by remember { mutableFloatStateOf(15f) }
-    var cpuClock by remember { mutableFloatStateOf(3200f) }
-    var gpuClock by remember { mutableFloatStateOf(800f) }
-    var expandedFan by remember { mutableStateOf(false) }
-    val fanModes = listOf("Smart", "Quiet", "Balanced", "Sport", "Full (Max)")
-    var selectedFan by remember { mutableStateOf(fanModes[0]) }
+    var expandedProfile by remember { mutableStateOf(false) }
+    val profiles = listOf("Power Save", "Balanced", "Smart", "Triple A", "Full")
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader(if (isEn) "Hardware Limits" else "Limites de Hardware", theme)
-        ConsoleCard(if (isEn) "Dynamic AutoTDP" else "AutoTDP Dinâmico", if (isEn) "Controls maximum power draw (W)" else "Controla o consumo máximo de energia (W)", theme, playClick) {
+
+        ConsoleSectionHeader(if (isEn) "Engine & Profiles" else "Motor e Perfis", theme)
+        ConsoleCard(if (isEn) "Execution Engine" else "Motor de Execução", if (isEn) "Choose Sysfs writer" else "Escolher método de escrita no hardware", theme, playClick) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (uiState.useRootTarget) "KernelSU (Root) - Máxima Eficiência" else "Pulse Engine (No-Root)", color = theme.text, fontFamily = theme.fontFamily)
+                ConsoleToggle(checked = uiState.useRootTarget, theme = theme, onCheckedChange = { viewModel.updateUseRoot(it); playClick() })
+            }
+        }
+
+        ConsoleCard(if (isEn) "Performance Profile" else "Perfil de Performance", uiState.performanceProfile, theme, { expandedProfile = true; playClick() }) {
+            DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
+                profiles.forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
+                        onClick = { viewModel.updatePerformanceProfile(profile); expandedProfile = false; playClick() }
+                    )
+                }
+            }
+        }
+
+        ConsoleSectionHeader(if (isEn) "Hardware Limits (Snapdragon 8 Elite)" else "Limites de Hardware (Snapdragon 8 Elite)", theme)
+        ConsoleCard(if (isEn) "Dynamic AutoTDP" else "AutoTDP Dinâmico", if (isEn) "Global Power Draw (W)" else "Controle de Corrente Máxima (W)", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(if (isEn) "Global Limit: ${tdpValue.toInt()} W" else "Limite Global: ${tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = tdpValue, onValueChange = { tdpValue = it }, valueRange = 5f..30f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Text(if (isEn) "Limit: ${uiState.tdpValue.toInt()} W" else "Limite: ${uiState.tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(
+                    value = uiState.tdpValue,
+                    onValueChange = { viewModel.updateTdp(it) },
+                    valueRange = 3f..25f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
             }
         }
-        ConsoleCard(if (isEn) "Manual Clocks" else "Frequências Manuais (Clock)", if (isEn) "Individual CPU & GPU tuning" else "Ajuste individual de CPU e GPU", theme, playClick) {
+
+        ConsoleCard(if (isEn) "Absolute Manual Clocks" else "Travamento Manual (Clocks)", if (isEn) "Individual limits per cluster" else "Limites individuais por arquitetura", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("Max CPU: ${cpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = cpuClock, onValueChange = { cpuClock = it }, valueRange = 1000f..4200f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Max GPU: ${gpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = gpuClock, onValueChange = { gpuClock = it }, valueRange = 300f..1100f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Text(if (isEn) "Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz" else "Núcleos de Performance (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(
+                    value = uiState.cpuPerfClock,
+                    onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) },
+                    valueRange = 800f..3530f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(if (isEn) "Prime Cores (2x): ${uiState.cpuPrimeClock.toInt()} MHz" else "Núcleos Prime (2x): ${uiState.cpuPrimeClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(
+                    value = uiState.cpuPrimeClock,
+                    onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) },
+                    valueRange = 1000f..4320f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text("Adreno GPU: ${uiState.gpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(
+                    value = uiState.gpuClock,
+                    onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) },
+                    valueRange = 300f..1100f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
             }
         }
-        ConsoleSectionHeader(if (isEn) "Cooling" else "Refrigeração", theme)
-        ConsoleCard(if (isEn) "Fan Control" else "Controle da Ventoinha (Fan)", selectedFan, theme, { expandedFan = true; playClick() }) {
-            DropdownMenu(expanded = expandedFan, onDismissRequest = { expandedFan = false }, modifier = Modifier.background(theme.surface)) {
-                fanModes.forEach { mode -> DropdownMenuItem(text = { Text(mode, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { selectedFan = mode; expandedFan = false; playClick() }) }
-            }
-        }
+
+        ConsoleSectionHeader(if (isEn) "Game Rules" else "Regras de Jogo", theme)
         ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific rules" else "Configurar regras específicas", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if (isEn) "Enable Overrides" else "Habilitar Overrides", color = theme.text, fontFamily = theme.fontFamily)

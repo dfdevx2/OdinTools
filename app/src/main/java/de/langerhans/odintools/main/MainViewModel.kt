@@ -18,6 +18,7 @@ import de.langerhans.odintools.tools.DeviceType.ODIN2
 import de.langerhans.odintools.tools.DeviceUtils
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.tools.ShellExecutor
+import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +34,7 @@ class MainViewModel @Inject constructor(
     private val executor: ShellExecutor,
     private val settings: SettingsRepo,
     private val prefs: SharedPrefsRepo,
+    private val performanceManager: PerformanceManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiModel())
@@ -48,7 +50,6 @@ class MainViewModel @Inject constructor(
 
     init {
         settings.applyRequiredSettings()
-
         val deviceType = deviceUtils.getDeviceType()
 
         _uiState.update { _ ->
@@ -66,32 +67,45 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun updatePerformanceProfile(profile: String) {
+        _uiState.update { it.copy(performanceProfile = profile) }
+        performanceManager.applyProfile(profile)
+    }
+
+    fun updateUseRoot(useRoot: Boolean) {
+        _uiState.update { it.copy(useRootTarget = useRoot) }
+    }
+
+    fun updateTdp(watts: Float) {
+        _uiState.update { it.copy(tdpValue = watts) }
+        performanceManager.applyDynamicTdp(watts)
+    }
+
+    fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
+        _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
+        performanceManager.applyAbsoluteClocks(
+            perfClockKHz = (perfClock * 1000).toLong(),
+            primeClockKHz = (primeClock * 1000).toLong(),
+            gpuClockHz = (gpuClock * 1000000).toLong()
+        )
+    }
+
     fun incompatibleDeviceDialogDismissed() {
-        _uiState.update { current ->
-            current.copy(showIncompatibleDeviceDialog = false)
-        }
+        _uiState.update { current -> current.copy(showIncompatibleDeviceDialog = false) }
     }
 
     fun updateSinglePressHomePreference(newValue: Boolean) {
-        // Invert here as prevent == double press
         settings.preventPressHome = !newValue
-
-        _uiState.update { current ->
-            current.copy(singlePressHomeEnabled = newValue)
-        }
+        _uiState.update { current -> current.copy(singlePressHomeEnabled = newValue) }
     }
 
     fun showControllerStylePreference() {
         _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList()
-        _uiState.update { current ->
-            current.copy(showControllerStyleDialog = true)
-        }
+        _uiState.update { current -> current.copy(showControllerStyleDialog = true) }
     }
 
     fun hideControllerStylePreference() {
-        _uiState.update { current ->
-            current.copy(showControllerStyleDialog = false)
-        }
+        _uiState.update { current -> current.copy(showControllerStyleDialog = false) }
     }
 
     private fun getCurrentControllerStyles(): List<CheckboxPreferenceUiModel> {
@@ -109,15 +123,11 @@ class MainViewModel @Inject constructor(
 
     fun showL2r2StylePreference() {
         _l2r2StyleOptions = getCurrentL2r2Styles().toMutableStateList()
-        _uiState.update {
-            it.copy(showL2r2StyleDialog = true)
-        }
+        _uiState.update { it.copy(showL2r2StyleDialog = true) }
     }
 
     fun hideL2r2StylePreference() {
-        _uiState.update {
-            it.copy(showL2r2StyleDialog = false)
-        }
+        _uiState.update { it.copy(showL2r2StyleDialog = false) }
     }
 
     private fun getCurrentL2r2Styles(): List<CheckboxPreferenceUiModel> {
@@ -134,50 +144,36 @@ class MainViewModel @Inject constructor(
     }
 
     fun saturationClicked() {
-        _uiState.update {
-            it.copy(showSaturationDialog = true, currentSaturation = prefs.saturationOverride)
-        }
+        _uiState.update { it.copy(showSaturationDialog = true, currentSaturation = prefs.saturationOverride) }
     }
 
     fun saturationDialogDismissed() {
-        _uiState.update {
-            it.copy(showSaturationDialog = false)
-        }
+        _uiState.update { it.copy(showSaturationDialog = false) }
     }
 
     fun saveSaturation(newValue: Float) {
         prefs.saturationOverride = newValue
         settings.setSfSaturation(newValue)
-        _uiState.update {
-            it.copy(showSaturationDialog = false)
-        }
+        _uiState.update { it.copy(showSaturationDialog = false) }
     }
 
     fun updateVibrationPreference(newValue: Boolean) {
         settings.vibrationEnabled = newValue
-        _uiState.update {
-            it.copy(vibrationEnabled = newValue)
-        }
+        _uiState.update { it.copy(vibrationEnabled = newValue) }
     }
 
     fun vibrationClicked() {
-        _uiState.update {
-            it.copy(showVibrationDialog = true, currentVibration = settings.vibrationStrength)
-        }
+        _uiState.update { it.copy(showVibrationDialog = true, currentVibration = settings.vibrationStrength) }
     }
 
     fun vibrationDialogDismissed() {
-        _uiState.update {
-            it.copy(showVibrationDialog = false)
-        }
+        _uiState.update { it.copy(showVibrationDialog = false) }
     }
 
     fun saveVibration(newValue: Int) {
         prefs.vibrationStrength = newValue
         settings.vibrationStrength = newValue
-        _uiState.update {
-            it.copy(showVibrationDialog = false, currentVibration = newValue)
-        }
+        _uiState.update { it.copy(showVibrationDialog = false, currentVibration = newValue) }
     }
 
     fun remapButtonClicked(setting: String) {
@@ -191,41 +187,29 @@ class MainViewModel @Inject constructor(
     }
 
     fun remapButtonDialogDismissed() {
-        _uiState.update {
-            it.copy(showRemapButtonDialog = false)
-        }
+        _uiState.update { it.copy(showRemapButtonDialog = false) }
     }
 
     private fun getDefaultKeyCode(setting: String): Int {
-        if (setting == SettingsRepo.KEY_CUSTOM_M1_VALUE) {
-            return KeyEvent.KEYCODE_BUTTON_C
-        }
-        if (setting == SettingsRepo.KEY_CUSTOM_M2_VALUE) {
-            return KeyEvent.KEYCODE_BUTTON_Z
-        }
+        if (setting == SettingsRepo.KEY_CUSTOM_M1_VALUE) return KeyEvent.KEYCODE_BUTTON_C
+        if (setting == SettingsRepo.KEY_CUSTOM_M2_VALUE) return KeyEvent.KEYCODE_BUTTON_Z
         return KeyEvent.KEYCODE_UNKNOWN
     }
 
     fun resetButtonKeyCode(setting: String) {
         val newValue: Int = getDefaultKeyCode(setting)
         executor.setIntSystemSetting(setting, newValue)
-        _uiState.update {
-            it.copy(showRemapButtonDialog = false)
-        }
+        _uiState.update { it.copy(showRemapButtonDialog = false) }
     }
 
     fun saveButtonKeyCode(setting: String, newValue: Int) {
         executor.setIntSystemSetting(setting, newValue)
-        _uiState.update {
-            it.copy(showRemapButtonDialog = false)
-        }
+        _uiState.update { it.copy(showRemapButtonDialog = false) }
     }
 
     fun updateVideoOutputOverridePreference(newValue: Boolean) {
         prefs.videoOutputOverrideEnabled = newValue
-        _uiState.update {
-            it.copy(videoOutputOverrideEnabled = newValue)
-        }
+        _uiState.update { it.copy(videoOutputOverrideEnabled = newValue) }
     }
 
     fun videoOutputOverrideClicked() {
@@ -239,9 +223,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun videoOutputOverrideDialogDismissed() {
-        _uiState.update {
-            it.copy(showVideoOutputOverrideDialog = false)
-        }
+        _uiState.update { it.copy(showVideoOutputOverrideDialog = false) }
     }
 
     fun saveVideoOutputOverride(newControllerStyle: ControllerStyle, newL2R2Style: L2R2Style) {
@@ -258,44 +240,31 @@ class MainViewModel @Inject constructor(
 
     fun appOverridesEnabled(newValue: Boolean) {
         prefs.appOverridesEnabled = newValue
-        _uiState.update {
-            it.copy(appOverridesEnabled = newValue)
-        }
+        _uiState.update { it.copy(appOverridesEnabled = newValue) }
     }
 
     fun overrideDelayEnabled(newValue: Boolean) {
         prefs.overrideDelay = newValue
-        _uiState.update {
-            it.copy(overrideDelayEnabled = newValue)
-        }
+        _uiState.update { it.copy(overrideDelayEnabled = newValue) }
     }
 
     fun updateChargeLimitPreference(newValue: Boolean) {
         prefs.chargeLimitEnabled = newValue
-        _uiState.update {
-            it.copy(chargeLimitEnabled = newValue)
-        }
+        _uiState.update { it.copy(chargeLimitEnabled = newValue) }
     }
 
     fun chargeLimitClicked() {
-        _uiState.update {
-            it.copy(showChargeLimitDialog = true, currentChargeLimit = prefs.minBatteryLevel..prefs.maxBatteryLevel)
-        }
+        _uiState.update { it.copy(showChargeLimitDialog = true, currentChargeLimit = prefs.minBatteryLevel..prefs.maxBatteryLevel) }
     }
 
     fun chargeLimitDialogDismissed() {
-        _uiState.update {
-            it.copy(showChargeLimitDialog = false)
-        }
+        _uiState.update { it.copy(showChargeLimitDialog = false) }
     }
 
     fun saveChargeLimit(newValue: ClosedRange<Int>) {
         prefs.minBatteryLevel = newValue.start
         prefs.maxBatteryLevel = newValue.endInclusive
-
-        _uiState.update {
-            it.copy(showChargeLimitDialog = false, currentChargeLimit = newValue)
-        }
+        _uiState.update { it.copy(showChargeLimitDialog = false, currentChargeLimit = newValue) }
     }
 
     fun dumpLogToFile() {
@@ -304,7 +273,6 @@ class MainViewModel @Inject constructor(
         val timeStamp = dateFormat.format(currentDate)
         val directory = "/storage/emulated/0"
         val fileName = "$directory/OdinTools_$timeStamp.log"
-        executor
-            .executeAsRoot("logcat -d -v threadtime > $fileName")
+        executor.executeAsRoot("logcat -d -v threadtime > $fileName")
     }
 }
