@@ -1,8 +1,5 @@
 package de.langerhans.odintools.tools.hardware
 
-import android.content.Context
-import android.util.Log
-import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.tools.ShellExecutor
 import kotlinx.coroutines.*
 import java.io.File
@@ -12,13 +9,12 @@ import kotlin.math.abs
 
 @Singleton
 class PerformanceManager @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val executor: ShellExecutor
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var hardwareJob: Job? = null
 
-    // Caminhos Sysfs (Snapdragon 8 Elite)
+    // Caminhos Sysfs (Snapdragon 8 Elite SM8750)
     private val SYSFS_CPU_PERF_MAX = "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq"
     private val SYSFS_CPU_PRIME_MAX = "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
     private val SYSFS_GPU_MAX = "/sys/class/kgsl/kgsl-3d0/max_gpuclk"
@@ -37,6 +33,7 @@ class PerformanceManager @Inject constructor(
 
     private var isAutoTdp = false
     private var targetWatts = 15f
+
     var isKsuModuleActive = false
 
     init {
@@ -51,6 +48,7 @@ class PerformanceManager @Inject constructor(
                     calculateAutoTdpStep()
                     writeLimitsToSysfs()
                 } else if (!isKsuModuleActive) {
+                    // Sem KSU, reafirma a cada segundo via && com trava 444
                     writeLimitsToSysfs()
                 }
                 delay(1000)
@@ -76,39 +74,10 @@ class PerformanceManager @Inject constructor(
     private fun writeLimitsToSysfs() {
         if (!executor.pServerAvailable) return
 
-        // O Segredo do Pulse: Script com trava 444
-        val scriptContent = """
-            #!/system/bin/sh
-            chmod 666 $SYSFS_CPU_PERF_MAX
-            echo $targetPerf > $SYSFS_CPU_PERF_MAX
-            chmod 444 $SYSFS_CPU_PERF_MAX
-
-            chmod 666 $SYSFS_CPU_PRIME_MAX
-            echo $targetPrime > $SYSFS_CPU_PRIME_MAX
-            chmod 444 $SYSFS_CPU_PRIME_MAX
-
-            chmod 666 $SYSFS_GPU_MAX
-            echo $targetGpu > $SYSFS_GPU_MAX
-            chmod 444 $SYSFS_GPU_MAX
-        """.trimIndent()
-
-        runGeneratedScript("apply_clocks.sh", scriptContent)
-    }
-
-    private fun runGeneratedScript(scriptName: String, scriptContents: String) {
-        try {
-            val scriptDir = File(context.filesDir, "root-scripts")
-            if (!scriptDir.exists()) scriptDir.mkdirs()
-
-            val scriptFile = File(scriptDir, scriptName)
-            scriptFile.writeText(scriptContents)
-            scriptFile.setReadable(true, false)
-            scriptFile.setExecutable(true, false)
-
-            executor.executeAsRoot("sh ${scriptFile.absolutePath}")
-        } catch (e: Exception) {
-            Log.e("OdinHub_AutoTDP", "Falha ao gerar/rodar script", e)
-        }
+        // Manda abrir, escrever e trancar em uma única transação atômica!
+        executor.executeAsRoot("chmod 666 $SYSFS_CPU_PERF_MAX && echo $targetPerf > $SYSFS_CPU_PERF_MAX && chmod 444 $SYSFS_CPU_PERF_MAX")
+        executor.executeAsRoot("chmod 666 $SYSFS_CPU_PRIME_MAX && echo $targetPrime > $SYSFS_CPU_PRIME_MAX && chmod 444 $SYSFS_CPU_PRIME_MAX")
+        executor.executeAsRoot("chmod 666 $SYSFS_GPU_MAX && echo $targetGpu > $SYSFS_GPU_MAX && chmod 444 $SYSFS_GPU_MAX")
     }
 
     fun applyDynamicTdp(watts: Float) {
@@ -134,6 +103,8 @@ class PerformanceManager @Inject constructor(
             val amps = abs(currentUaStr.toFloat() / 1_000_000f)
             val volts = voltageUvStr.toFloat() / 1_000_000f
             amps * volts
-        } catch (e: Exception) { 0f }
+        } catch (e: Exception) {
+            0f
+        }
     }
 }
