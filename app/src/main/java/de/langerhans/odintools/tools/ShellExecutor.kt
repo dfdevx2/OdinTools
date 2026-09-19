@@ -31,7 +31,7 @@ class ShellExecutor @Inject constructor() {
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         data.writeStringArray(arrayOf(cmd, "1"))
-        runCatching { binder.transact(0, data, reply, 0) }
+        runCatching { binder!!.transact(0, data, reply, 0) } // <-- OS DOIS PONTOS DE EXCLAMAÇÃO ENTRAM AQUI
             .getOrElse {
                 return Result.failure(it)
             }
