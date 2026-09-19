@@ -12,20 +12,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
-import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.service.OdinHubService
 import de.langerhans.odintools.ui.screens.SettingsScreen
 import de.langerhans.odintools.appsettings.AppOverrideListScreen
 import de.langerhans.odintools.appsettings.AppOverridesScreen
-import de.langerhans.odintools.ui.screens.PerformanceScreen
 import de.langerhans.odintools.ui.screens.PermissionOnboardingWrapper
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
-    @Inject lateinit var sharedPrefsRepo: SharedPrefsRepo
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -48,27 +42,7 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = "settings") {
                     composable("settings") {
                         SettingsScreen(
-                            navigateToOverrideList = { navController.navigate("override_list") },
-                            navigateToPerformance = { navController.navigate("performance") }
-                        )
-                    }
-                    composable("performance") {
-                        PerformanceScreen(
-                            navigateBack = { navController.popBackStack() },
-                            savedCustomTdfs = sharedPrefsRepo.customTdpProfiles,
-                            onSaveCustomTdp = { name, watts ->
-                                val currentList = sharedPrefsRepo.customTdpProfiles.toMutableList()
-                                currentList.add(de.langerhans.odintools.models.CustomTdpProfile(name = name, watts = watts))
-                                sharedPrefsRepo.customTdpProfiles = currentList
-                            },
-                            onDeleteCustomTdp = { id ->
-                                val currentList = sharedPrefsRepo.customTdpProfiles.toMutableList()
-                                currentList.removeAll { it.id == id }
-                                sharedPrefsRepo.customTdpProfiles = currentList
-                            },
-                            onSelectTdp = { watts, profileName ->
-                                // Aqui faremos a chamada direta ao PerformanceManager futuramente
-                            }
+                            navigateToOverrideList = { navController.navigate("override_list") }
                         )
                     }
                     composable("override_list") {
