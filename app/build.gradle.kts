@@ -9,12 +9,12 @@ plugins {
 
 android {
     namespace = "de.langerhans.odintools"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.dfdx047.odinhub"
         minSdk = 33
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 11
         versionName = "0.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -54,16 +54,13 @@ room {
 }
 
 dependencies {
-    // 1. Blinda o Compose forçando a BOM estável (ignora versões alfa do libs)
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    // Jetpack Compose BOM
+    val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)
     debugImplementation(composeBom)
 
-    // 2. Ui do Compose deve vir abaixo da BOM
-    implementation(libs.androidx.compose.ui)
-
-    // 3. Suas dependências do catálogo
+    // Bundles do TOML
     implementation(libs.bundles.app)
     debugImplementation(libs.bundles.appDebug)
     annotationProcessor(libs.bundles.appAnnotationProcessor)
@@ -71,16 +68,12 @@ dependencies {
     testImplementation(libs.bundles.appUnitTest)
     androidTestImplementation(libs.bundles.appAndroidTest)
 
-    // 4. Hilt
-    implementation(libs.com.google.dagger.hilt.android)
-    ksp(libs.com.google.dagger.hilt.android.compiler)
-
-    // 5. Novo motor de vídeo (ExoPlayer moderno)
+    // Dependências de Mídia e ExoPlayer (Boot Animation)
+    implementation("com.google.android.exoplayer:exoplayer:2.18.0")
     implementation("androidx.media3:media3-exoplayer:1.2.0")
     implementation("androidx.media3:media3-ui:1.2.0")
 
-    // 6. Força versões estáveis do Android Core para evitar exigência do SDK 35/37
-    implementation("androidx.core:core-ktx:1.13.1")
+    // Ferramentas auxiliares
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
