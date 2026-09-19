@@ -57,7 +57,7 @@ class VideoOutputReceiver : BroadcastReceiver() {
         val connected = intent.extras?.getBoolean("is_connected")
 
         if (prefs.overrideDelay) {
-            Handler(Looper.getMainLooper()).postDelayed({ handleEvent(connected) }, OVERRIDE_DELAY)
+            Handler(Looper.getMainLooper()).postDelayed({ handleEvent(connected) }, 1000L)
         } else {
             handleEvent(connected)
         }
