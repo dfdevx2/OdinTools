@@ -69,8 +69,13 @@ dependencies {
     implementation(libs.com.google.dagger.hilt.android)
     ksp(libs.com.google.dagger.hilt.android.compiler)
     dependencies {
+        implementation("com.google.android.exoplayer:exoplayer:2.18.0")
         implementation("androidx.media3:media3-exoplayer:1.2.0")
         implementation("androidx.media3:media3-ui:1.2.0")
+        implementation("androidx.core:core-ktx:1.9.0")
+        implementation("androidx.appcompat:appcompat:1.6.1")
+        implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
 
     }
 }
