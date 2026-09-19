@@ -15,7 +15,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
-import de.langerhans.odintools.service.OdinHubService
 import de.langerhans.odintools.ui.screens.SettingsScreen
 import de.langerhans.odintools.appsettings.AppOverrideListScreen
 import de.langerhans.odintools.appsettings.AppOverridesScreen
@@ -25,35 +24,34 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Pedir permissão de Notificação (Obrigatório no Android 13+)
+        // 1. Solicita permissão de Notificação no Android 13+ de forma segura
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    android.Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                runCatching {
+                    requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+                }
             }
         }
 
-        // 2. Checar e Pedir Usage Stats
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.unsafeCheckOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS,
-            Process.myUid(),
-            packageName
-        )
-
-        if (mode != AppOpsManager.MODE_ALLOWED) {
-            // Joga o usuário pra tela de configurações se não tiver permissão
-            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            startActivity(intent)
-        } else {
-            // Se tiver permissão, inicia o serviço imortal do Odin Hub
-            val serviceIntent = Intent(this, OdinHubService::class.java)
-            ContextCompat.startForegroundService(this, serviceIntent)
+        // 2. Interface do Compose com as rotas e tipos corrigidos
+        setContent {
+            val navController = rememberNavController()
+            NavHost(navController = navController, startDestination = "settings") {
+                composable("settings") {
+                    SettingsScreen(navigateToOverrideList = { navController.navigate("override_list") })
+                }
+                composable("override_list") {
+                    AppOverrideListScreen(
+                        navigateToOverrides = { packageName: String ->
+                            navController.navigate("override/$packageName")
+                        }
+                    )
+                }
+                composable("override/{packageName}") { backStackEntry ->
+                    val packageName = backStackEntry.arguments?.getString("packageName")
+                    AppOverridesScreen(navigateBack = { navController.popBackStack() })
+                }
+            }
         }
-
     }
 }
