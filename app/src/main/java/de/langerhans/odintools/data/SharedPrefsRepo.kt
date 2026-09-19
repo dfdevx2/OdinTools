@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener
 import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.models.ControllerStyle
+import de.langerhans.odintools.models.CustomClockProfile
+import de.langerhans.odintools.models.CustomTdpProfile
 import de.langerhans.odintools.models.L2R2Style
 import javax.inject.Inject
 
@@ -48,6 +50,28 @@ class SharedPrefsRepo @Inject constructor(
     var maxBatteryLevel
         get() = prefs.getInt(KEY_MAX_BATTERY_LEVEL, 80)
         set(value) = prefs.edit().putInt(KEY_MAX_BATTERY_LEVEL, value).apply()
+
+    // --- Perfis Customizados (Nativo via StringSet) ---
+    var customTdpProfiles: List<CustomTdpProfile>
+        get() {
+            val set = prefs.getStringSet(KEY_CUSTOM_TDP_PROFILES, emptySet()) ?: emptySet()
+            return set.mapNotNull { CustomTdpProfile.deserialize(it) }
+        }
+        set(value) {
+            val set = value.map { it.serialize() }.toSet()
+            prefs.edit().putStringSet(KEY_CUSTOM_TDP_PROFILES, set).apply()
+        }
+
+    var customClockProfiles: List<CustomClockProfile>
+        get() {
+            val set = prefs.getStringSet(KEY_CUSTOM_CLOCK_PROFILES, emptySet()) ?: emptySet()
+            return set.mapNotNull { CustomClockProfile.deserialize(it) }
+        }
+        set(value) {
+            val set = value.map { it.serialize() }.toSet()
+            prefs.edit().putStringSet(KEY_CUSTOM_CLOCK_PROFILES, set).apply()
+        }
+    // ------------------------------------------------
 
     private var chargeLimitEnabledListener: OnSharedPreferenceChangeListener? = null
 
@@ -129,5 +153,8 @@ class SharedPrefsRepo @Inject constructor(
         private const val KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED = "video_output_override_enabled"
         private const val KEY_VIDEO_OUTPUT_CONTROLLER_STYLE = "video_output_override_controller_style"
         private const val KEY_VIDEO_OUTPUT_L2R2_STYLE = "video_output_override_l2r2_style"
+
+        private const val KEY_CUSTOM_TDP_PROFILES = "custom_tdp_profiles_set"
+        private const val KEY_CUSTOM_CLOCK_PROFILES = "custom_clock_profiles_set"
     }
 }
