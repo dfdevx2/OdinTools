@@ -1,76 +1,123 @@
 package de.langerhans.odintools.tools.hardware
 
+import android.util.Log
+import kotlinx.coroutines.*
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 @Singleton
 class PerformanceManager @Inject constructor() {
 
-    // Inicializa o executor com Root por padrão (futuramente injetaremos o PServer aqui como fallback)
     private val executor: SysfsExecutor = RootExecutor()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var autoTdpJob: Job? = null
 
-    // Caminhos Sysfs para o Snapdragon 8 Elite (SM8750)
-    private val SYSFS_CPU_PERF_MAX = "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq" // 6x Perf Cores
-    private val SYSFS_CPU_PRIME_MAX = "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq" // 2x Prime Cores (No SD8 Gen 3/4 costuma ser policy4 ou 6)
-    private val SYSFS_GPU_MAX = "/sys/class/kgsl/kgsl-3d0/max_gpuclk" // Adreno GPU
+    // Caminhos Sysfs (Snapdragon 8 Elite SM8750)
+    private val SYSFS_CPU_PERF_MAX = "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq"
+    private val SYSFS_CPU_PRIME_MAX = "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
+    private val SYSFS_GPU_MAX = "/sys/class/kgsl/kgsl-3d0/max_gpuclk"
 
-    // Limites de Frequência do SD8 Elite (Valores em KHz)
-    private val PRIME_MAX_KHZ = 4320000 // 4.32 GHz
-    private val PRIME_MIN_KHZ = 1000000 // 1.0 GHz
+    // Limites de Frequência (KHz) Absolutos do Chip
+    private val PRIME_MAX_KHZ = 4320000L
+    private val PRIME_MIN_KHZ = 1000000L
+    private val PERF_MAX_KHZ = 3530000L
+    private val PERF_MIN_KHZ = 800000L
+    private val GPU_MAX_HZ = 1100000000L
+    private val GPU_MIN_HZ = 300000000L
 
-    private val PERF_MAX_KHZ = 3530000 // 3.53 GHz
-    private val PERF_MIN_KHZ = 800000  // 800 MHz
-
-    private val GPU_MAX_HZ = 1100000000L // 1.1 GHz
-    private val GPU_MIN_HZ = 300000000L  // 300 MHz
+    // Rastreio atual dos clocks do loop
+    private var currentPerfClock = PERF_MAX_KHZ
+    private var currentPrimeClock = PRIME_MAX_KHZ
+    private var currentGpuClock = GPU_MAX_HZ
 
     /**
-     * Motor Linear de TDP (3W a 25W).
-     * Aplica uma limitação estrita de clock baseada na porcentagem de energia liberada.
+     * O Verdadeiro Daemon de AutoTDP.
+     * Fica em loop infinito lendo a bateria e subindo/descendo os clocks.
      */
-    fun applyDynamicTdp(watts: Float) {
-        val safeWatts = watts.coerceIn(3f, 25f)
+    fun applyDynamicTdp(targetWatts: Float) {
+        autoTdpJob?.cancel() // Mata o loop anterior
 
-        // Calcula o "peso" da performance (0.0 no 3W, 1.0 no 25W)
-        val factor = (safeWatts - 3f) / (25f - 3f)
+        // Se pedir o máximo, libera geral as comportas
+        if (targetWatts >= 25f) {
+            applyAbsoluteClocks(PERF_MAX_KHZ, PRIME_MAX_KHZ, GPU_MAX_HZ)
+            return
+        }
 
-        // Trava matemática de Clocks absolutos baseados no fator de TDP
-        val targetPrime = (PRIME_MIN_KHZ + (PRIME_MAX_KHZ - PRIME_MIN_KHZ) * factor).toLong()
-        val targetPerf = (PERF_MIN_KHZ + (PERF_MAX_KHZ - PERF_MIN_KHZ) * factor).toLong()
-        val targetGpu = (GPU_MIN_HZ + (GPU_MAX_HZ - GPU_MIN_HZ) * factor).toLong()
+        // Começa com metade do clock para o ajuste ser suave
+        currentPerfClock = PERF_MAX_KHZ / 2
+        currentPrimeClock = PRIME_MAX_KHZ / 2
+        currentGpuClock = GPU_MAX_HZ / 2
 
-        applyAbsoluteClocks(perfClockKHz = targetPerf, primeClockKHz = targetPrime, gpuClockHz = targetGpu)
+        autoTdpJob = scope.launch {
+            while (isActive) {
+                val currentPowerDraw = getRealTimePowerDrawWatts()
+
+                // Margem de tolerância (0.5W) para o emulador não ficar com engasgos (stuttering)
+                if (currentPowerDraw > targetWatts + 0.5f) {
+                    // CORTA A ENERGIA (Desce os clocks em 5%)
+                    currentPerfClock = (currentPerfClock * 0.95).toLong().coerceAtLeast(PERF_MIN_KHZ)
+                    currentPrimeClock = (currentPrimeClock * 0.95).toLong().coerceAtLeast(PRIME_MIN_KHZ)
+                    currentGpuClock = (currentGpuClock * 0.95).toLong().coerceAtLeast(GPU_MIN_HZ)
+
+                    applyAbsoluteClocks(currentPerfClock, currentPrimeClock, currentGpuClock, fromLoop = true)
+
+                } else if (currentPowerDraw < targetWatts - 0.5f) {
+                    // FOLGA DE ENERGIA (Sobe os clocks em 5% pra garantir FPS)
+                    currentPerfClock = (currentPerfClock * 1.05).toLong().coerceAtMost(PERF_MAX_KHZ)
+                    currentPrimeClock = (currentPrimeClock * 1.05).toLong().coerceAtMost(PRIME_MAX_KHZ)
+                    currentGpuClock = (currentGpuClock * 1.05).toLong().coerceAtMost(GPU_MAX_HZ)
+
+                    applyAbsoluteClocks(currentPerfClock, currentPrimeClock, currentGpuClock, fromLoop = true)
+                }
+
+                // Velocidade de reação do TDP: Lê a bateria a cada 1 segundo
+                delay(1000)
+            }
+        }
     }
 
-    /**
-     * Aplicação de Perfis Globais Otimizados
-     */
     fun applyProfile(profile: String) {
         when (profile) {
-            "Power Save" -> applyAbsoluteClocks(PERF_MIN_KHZ.toLong(), PRIME_MIN_KHZ.toLong(), GPU_MIN_HZ) // Equivalente a ~3W
-            "Balanced" -> applyDynamicTdp(10f) // Trava em 10W - Foco em bateria e média performance
-            "Smart" -> {
-                // Aqui depois engataremos o algoritmo do Pulse que flutua o governor
-                applyDynamicTdp(15f)
-            }
-            "Triple A" -> applyDynamicTdp(20f) // Modo pesado
-            "Full" -> applyDynamicTdp(25f) // Desbloqueia tudo, ignorando termostato
+            "Power Save" -> applyDynamicTdp(5f)
+            "Balanced" -> applyDynamicTdp(10f)
+            "Smart" -> applyDynamicTdp(15f)
+            "Triple A" -> applyDynamicTdp(20f)
+            "Full" -> applyDynamicTdp(25f)
         }
     }
 
     /**
-     * Trava manual dura. Escreve diretamente no Sysfs.
+     * Trava dura de clocks manuais
      */
-    fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long) {
+    fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long, fromLoop: Boolean = false) {
+        // Se a chamada veio da interface (slider manual), o usuário quer matar o AutoTDP
+        if (!fromLoop) autoTdpJob?.cancel()
+
         if (!executor.isAvailable()) return
 
-        // Trava Cluster 0 (Performance)
         executor.write(SYSFS_CPU_PERF_MAX, perfClockKHz.toString())
-
-        // Trava Cluster 1 (Prime)
         executor.write(SYSFS_CPU_PRIME_MAX, primeClockKHz.toString())
-
-        // Trava GPU
         executor.write(SYSFS_GPU_MAX, gpuClockHz.toString())
+    }
+
+    /**
+     * Lê a API padrão de bateria do Kernel Linux (V x A = W)
+     */
+    private fun getRealTimePowerDrawWatts(): Float {
+        return try {
+            val currentUaStr = File("/sys/class/power_supply/battery/current_now").readText().trim()
+            val voltageUvStr = File("/sys/class/power_supply/battery/voltage_now").readText().trim()
+
+            // Converte microAmperes e microVolts para Amperes e Volts reais
+            val amps = abs(currentUaStr.toFloat() / 1_000_000f)
+            val volts = voltageUvStr.toFloat() / 1_000_000f
+
+            amps * volts
+        } catch (e: Exception) {
+            Log.e("OdinHub_AutoTDP", "Falha ao ler bateria, retornando 0", e)
+            0f
+        }
     }
 }
