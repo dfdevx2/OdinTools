@@ -1,6 +1,7 @@
 package de.langerhans.odintools.ui.screens
 
 import android.content.Intent
+import android.graphics.ImageDecoder
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
@@ -18,13 +19,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -46,6 +52,8 @@ import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.ui.composables.*
 import de.langerhans.odintools.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -59,10 +67,21 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     var currentLanguage by remember { mutableStateOf("Português (PT-BR)") }
     val rawTheme = AvailableThemes[currentThemeIndex]
     val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
+
+    // Estados de Áudio
     var bgmEnabled by remember { mutableStateOf(true) }
     var bgmVolume by remember { mutableFloatStateOf(0.3f) }
     var sfxEnabled by remember { mutableStateOf(true) }
     var sfxVolume by remember { mutableFloatStateOf(0.8f) }
+
+    // Estados do Wallpaper e Blur (Elevados para a tela principal)
+    var liveWallpaperType by remember { mutableStateOf("Static") }
+    var blurEnabled by remember { mutableStateOf(false) }
+    var blurIntensity by remember { mutableFloatStateOf(0.5f) }
+    var wallpaperOpacity by remember { mutableFloatStateOf(1.0f) }
+    var selectedWallpaperUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedWallpaperName by remember { mutableStateOf("Nenhum arquivo selecionado") }
+
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val bgmPlayer = remember { MediaPlayer.create(context, R.raw.bgm_1).apply { isLooping = true } }
@@ -78,7 +97,20 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
     }
 
-    DisposableEffect(lifecycleOwner, bgmEnabled, showBootAnimation) {
+    // Reatividade de Áudio em Tempo Real
+    LaunchedEffect(bgmVolume) {
+        bgmPlayer.setVolume(bgmVolume, bgmVolume)
+    }
+
+    LaunchedEffect(bgmEnabled, showBootAnimation) {
+        if (bgmEnabled && !showBootAnimation) {
+            if (!bgmPlayer.isPlaying) bgmPlayer.start()
+        } else {
+            if (bgmPlayer.isPlaying) bgmPlayer.pause()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
                 if (bgmPlayer.isPlaying) bgmPlayer.pause()
@@ -87,10 +119,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        bgmPlayer.setVolume(bgmVolume, bgmVolume)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     DisposableEffect(Unit) {
@@ -109,81 +138,169 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         return
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        finalTheme.background,
-                        finalTheme.background.copy(alpha = 0.8f),
-                        Color.Black
-                    )
-                )
-            )
-            .onPreviewKeyEvent { event ->
-                if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
-                    when (event.nativeKeyEvent.keyCode) {
-                        android.view.KeyEvent.KEYCODE_BUTTON_R1 -> {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            playSfx(R.raw.sfx_nav)
-                            selectedTab = (selectedTab + 1).coerceAtMost(3)
-                            true
-                        }
-                        android.view.KeyEvent.KEYCODE_BUTTON_L1 -> {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            playSfx(R.raw.sfx_nav)
-                            selectedTab = (selectedTab - 1).coerceAtLeast(0)
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            }
-    ) {
-        Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
-            Text(
-                text = "ODIN HUB",
-                fontSize = 28.sp,
-                fontFamily = finalTheme.fontFamily,
-                fontWeight = FontWeight.Black,
-                color = finalTheme.primary,
-                letterSpacing = 2.sp,
-                modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp)
-            )
-            ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme) {
-                if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it }
-            }
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    if (targetState > initialState) {
-                        slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeIn(tween(300)) togetherWith
-                            slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeOut(tween(300))
-                    } else {
-                        slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeIn(tween(300)) togetherWith
-                            slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeOut(tween(300))
-                    }
-                },
-                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
-                label = "tab_animation"
-            ) { targetTab ->
-                when (targetTab) {
-                    0 -> PerformancePanel(uiState, viewModel, finalTheme, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
-                    1 -> DisplayPanel(finalTheme) { playSfx(R.raw.sfx_select) }
-                    2 -> ControlsPanel(uiState, viewModel, finalTheme) { playSfx(R.raw.sfx_select) }
-                    3 -> SystemPanel(
-                        theme = finalTheme, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage,
-                        amoledBlack = useAmoledBlack, bgmEnabled = bgmEnabled, bgmVolume = bgmVolume, sfxEnabled = sfxEnabled, sfxVolume = sfxVolume,
-                        playClick = { playSfx(R.raw.sfx_select) }, onThemeChange = { currentThemeIndex = it }, onLanguageChange = { currentLanguage = it },
-                        onAmoledToggle = { useAmoledBlack = it; playSfx(R.raw.sfx_select) },
-                        onBgmToggle = { bgmEnabled = it; playSfx(R.raw.sfx_select) }, onBgmVolume = { bgmVolume = it },
-                        onSfxToggle = { sfxEnabled = it; playSfx(R.raw.sfx_select) }, onSfxVolume = { sfxVolume = it },
-                        onReplayBoot = { showBootAnimation = true; playSfx(R.raw.sfx_select) }
-                    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 1. Cor Base do Tema
+        Box(modifier = Modifier.fillMaxSize().background(finalTheme.background))
+
+        // 2. Camada do Wallpaper (Estático ou Vídeo)
+        if (selectedWallpaperUri != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(wallpaperOpacity)
+                    .blur(if (blurEnabled) (blurIntensity * 48).dp else 0.dp)
+            ) {
+                if (liveWallpaperType == "Live (MP4)") {
+                    LiveWallpaperRenderer(uri = selectedWallpaperUri!!)
+                } else {
+                    StaticWallpaperRenderer(uri = selectedWallpaperUri!!)
                 }
             }
         }
+
+        // 3. Gradiente de Contraste (Para garantir a leitura dos textos)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            finalTheme.background.copy(alpha = 0.6f),
+                            Color.Black.copy(alpha = 0.9f)
+                        )
+                    )
+                )
+        )
+
+        // 4. Camada de Interface e Controles
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { event ->
+                    if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                        when (event.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_BUTTON_R1 -> {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                playSfx(R.raw.sfx_nav)
+                                selectedTab = (selectedTab + 1).coerceAtMost(3)
+                                true
+                            }
+                            android.view.KeyEvent.KEYCODE_BUTTON_L1 -> {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                playSfx(R.raw.sfx_nav)
+                                selectedTab = (selectedTab - 1).coerceAtLeast(0)
+                                true
+                            }
+                            else -> false
+                        }
+                    } else false
+                }
+        ) {
+            Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                Text(
+                    text = "ODIN HUB",
+                    fontSize = 28.sp,
+                    fontFamily = finalTheme.fontFamily,
+                    fontWeight = FontWeight.Black,
+                    color = finalTheme.primary,
+                    letterSpacing = 2.sp,
+                    modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp)
+                )
+                ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme) {
+                    if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it }
+                }
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = {
+                        if (targetState > initialState) {
+                            slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeIn(tween(300)) togetherWith
+                                slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeOut(tween(300))
+                        } else {
+                            slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeIn(tween(300)) togetherWith
+                                slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeOut(tween(300))
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
+                    label = "tab_animation"
+                ) { targetTab ->
+                    when (targetTab) {
+                        0 -> PerformancePanel(uiState, viewModel, finalTheme, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
+                        1 -> DisplayPanel(finalTheme) { playSfx(R.raw.sfx_select) }
+                        2 -> ControlsPanel(uiState, viewModel, finalTheme) { playSfx(R.raw.sfx_select) }
+                        3 -> SystemPanel(
+                            theme = finalTheme, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage,
+                            amoledBlack = useAmoledBlack, bgmEnabled = bgmEnabled, bgmVolume = bgmVolume, sfxEnabled = sfxEnabled, sfxVolume = sfxVolume,
+                            liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity,
+                            selectedWallpaperName = selectedWallpaperName,
+                            playClick = { playSfx(R.raw.sfx_select) }, onThemeChange = { currentThemeIndex = it }, onLanguageChange = { currentLanguage = it },
+                            onAmoledToggle = { useAmoledBlack = it; playSfx(R.raw.sfx_select) },
+                            onBgmToggle = { bgmEnabled = it; playSfx(R.raw.sfx_select) }, onBgmVolume = { bgmVolume = it },
+                            onSfxToggle = { sfxEnabled = it; playSfx(R.raw.sfx_select) }, onSfxVolume = { sfxVolume = it },
+                            onReplayBoot = { showBootAnimation = true; playSfx(R.raw.sfx_select) },
+                            onLiveWallpaperTypeChange = { liveWallpaperType = it; selectedWallpaperUri = null; selectedWallpaperName = "Nenhum arquivo" },
+                            onBlurToggle = { blurEnabled = it; playSfx(R.raw.sfx_select) }, onBlurIntensityChange = { blurIntensity = it },
+                            onWallpaperOpacityChange = { wallpaperOpacity = it },
+                            onWallpaperSelected = { uri, name -> selectedWallpaperUri = uri; selectedWallpaperName = name }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// RENDERIZADORES DE WALLPAPER (NOVOS)
+// ==========================================
+@Composable
+fun LiveWallpaperRenderer(uri: Uri) {
+    val context = LocalContext.current
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode = Player.REPEAT_MODE_ALL // Faz o vídeo rodar em loop infinito
+            volume = 0f // Fundo não deve emitir som
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(uri) {
+        onDispose { exoPlayer.release() }
+    }
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = false
+                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM // Preenche a tela toda (Scale Crop)
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
+}
+
+@Composable
+fun StaticWallpaperRenderer(uri: Uri) {
+    val context = LocalContext.current
+    var bitmap by remember(uri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(uri) {
+        withContext(Dispatchers.IO) {
+            try {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                bitmap = ImageDecoder.decodeBitmap(source).asImageBitmap()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    bitmap?.let {
+        Image(
+            bitmap = it,
+            contentDescription = "Static Wallpaper",
+            contentScale = ContentScale.Crop, // Preenche a tela toda
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
@@ -208,23 +325,16 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
             })
         }
     }
-
     DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
+        onDispose { exoPlayer.release() }
     }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
+                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 }
             },
             modifier = Modifier.matchParentSize()
@@ -350,27 +460,22 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
 fun SystemPanel(
     theme: ConsoleTheme, currentThemeIndex: Int, currentLanguage: String, amoledBlack: Boolean,
     bgmEnabled: Boolean, bgmVolume: Float, sfxEnabled: Boolean, sfxVolume: Float,
+    liveWallpaperType: String, blurEnabled: Boolean, blurIntensity: Float, wallpaperOpacity: Float, selectedWallpaperName: String,
     playClick: () -> Unit, onThemeChange: (Int) -> Unit, onLanguageChange: (String) -> Unit, onAmoledToggle: (Boolean) -> Unit,
     onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit, onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit,
-    onReplayBoot: () -> Unit
+    onReplayBoot: () -> Unit, onLiveWallpaperTypeChange: (String) -> Unit, onBlurToggle: (Boolean) -> Unit,
+    onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit, onWallpaperSelected: (Uri, String) -> Unit
 ) {
     var expandedLang by remember { mutableStateOf(false) }
     var expandedTheme by remember { mutableStateOf(false) }
-    var liveWallpaperType by remember { mutableStateOf("Static") }
-    var blurEnabled by remember { mutableStateOf(false) }
-    var blurIntensity by remember { mutableFloatStateOf(0.5f) }
-    var selectedWallpaper by remember { mutableStateOf("static_wallpaper_1.png") }
+    var expandedWallType by remember { mutableStateOf(false) } // Correção do conflito de dropdown
 
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            selectedWallpaper = it.toString()
-        }
+        uri?.let { onWallpaperSelected(it, "Imagem Selecionada") }
     }
 
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            selectedWallpaper = it.toString()
-        }
+        uri?.let { onWallpaperSelected(it, "Vídeo Selecionado") }
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -416,37 +521,39 @@ fun SystemPanel(
             }
         }
         ConsoleSectionHeader("Live Wallpaper", theme)
-        ConsoleCard("Tipo de Wallpaper", liveWallpaperType, theme, playClick) {
-            DropdownMenu(expanded = expandedLang, onDismissRequest = { expandedLang = false }, modifier = Modifier.background(theme.surface)) {
+        ConsoleCard("Tipo de Wallpaper", liveWallpaperType, theme, { expandedWallType = true; playClick() }) {
+            DropdownMenu(expanded = expandedWallType, onDismissRequest = { expandedWallType = false }, modifier = Modifier.background(theme.surface)) {
                 listOf("Static", "Live (MP4)").forEach { type ->
-                    DropdownMenuItem(text = { Text(type, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { liveWallpaperType = type; expandedLang = false; playClick() })
+                    DropdownMenuItem(text = { Text(type, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { onLiveWallpaperTypeChange(type); expandedWallType = false; playClick() })
                 }
             }
-        }
-        ConsoleCard("Blur", "Controlar intensidade do Blur", theme, playClick) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Habilitar Blur", color = theme.text, fontFamily = theme.fontFamily)
-                ConsoleToggle(checked = blurEnabled, theme = theme, onCheckedChange = { blurEnabled = it; playClick() })
+            if (liveWallpaperType == "Live (MP4)") {
+                Text("AVISO: Selecione apenas arquivos de vídeo no formato .MP4", color = theme.primary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
-            Slider(value = blurIntensity, onValueChange = { blurIntensity = it }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
         }
-        ConsoleCard("Wallpaper", "Selecionar Wallpaper", theme, playClick) {
+        ConsoleCard("Filtros e Opacidade", "Controlar renderização do fundo", theme, playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Habilitar Blur (Desfoque)", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = blurEnabled, theme = theme, onCheckedChange = { onBlurToggle(it); playClick() })
+                }
+                Text("Intensidade do Blur", color = theme.text.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                Slider(value = blurIntensity, onValueChange = { onBlurIntensityChange(it) }, enabled = blurEnabled, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Text("Opacidade do Fundo", color = theme.text.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                Slider(value = wallpaperOpacity, onValueChange = { onWallpaperOpacityChange(it) }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+        ConsoleCard("Wallpaper", selectedWallpaperName, theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text("Wallpaper Selecionado: $selectedWallpaper", color = theme.text, fontFamily = theme.fontFamily)
-                Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = {
-                    if (liveWallpaperType == "Static") {
-                        imagePickerLauncher.launch("image/*")
-                    } else {
-                        videoPickerLauncher.launch("video/*")
-                    }
+                    if (liveWallpaperType == "Static") imagePickerLauncher.launch("image/*") else videoPickerLauncher.launch("video/*")
                 }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                    Text("Selecionar", fontFamily = theme.fontFamily, color = Color.White)
+                    Text("Selecionar Arquivo", fontFamily = theme.fontFamily, color = Color.White)
                 }
             }
         }
         ConsoleSectionHeader("Sobre o Sistema", theme)
-        ConsoleCard("Odin Hub", "Versão 0.5 - Desenvolvido por Seu Nome", theme, playClick) {
+        ConsoleCard("Odin Hub", "Versão 0.5 - Desenvolvido por dfdx047", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Button(onClick = { playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
