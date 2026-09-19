@@ -54,12 +54,16 @@ room {
 }
 
 dependencies {
-    implementation(libs.androidx.compose.ui)
-    val composeBom = platform(libs.androidx.compose.bom)
+    // 1. Blinda o Compose forçando a BOM estável (ignora versões alfa do libs)
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     debugImplementation(composeBom)
 
+    // 2. Ui do Compose deve vir abaixo da BOM
+    implementation(libs.androidx.compose.ui)
+
+    // 3. Suas dependências do catálogo
     implementation(libs.bundles.app)
     debugImplementation(libs.bundles.appDebug)
     annotationProcessor(libs.bundles.appAnnotationProcessor)
@@ -67,16 +71,17 @@ dependencies {
     testImplementation(libs.bundles.appUnitTest)
     androidTestImplementation(libs.bundles.appAndroidTest)
 
+    // 4. Hilt
     implementation(libs.com.google.dagger.hilt.android)
     ksp(libs.com.google.dagger.hilt.android.compiler)
-    dependencies {
-        implementation("com.google.android.exoplayer:exoplayer:2.18.0")
-        implementation("androidx.media3:media3-exoplayer:1.2.0")
-        implementation("androidx.media3:media3-ui:1.2.0")
-        implementation("androidx.core:core-ktx:1.9.0")
-        implementation("androidx.appcompat:appcompat:1.6.1")
-        implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
 
-    }
+    // 5. Novo motor de vídeo (ExoPlayer moderno)
+    implementation("androidx.media3:media3-exoplayer:1.2.0")
+    implementation("androidx.media3:media3-ui:1.2.0")
+
+    // 6. Força versões estáveis do Android Core para evitar exigência do SDK 35/37
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
 }
