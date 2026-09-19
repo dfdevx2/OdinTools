@@ -54,6 +54,7 @@ room {
 }
 
 dependencies {
+    implementation(libs.androidx.compose.ui)
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)

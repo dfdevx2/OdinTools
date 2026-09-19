@@ -18,6 +18,7 @@ junit = "4.13.2"
 ktlint = "12.1.1"
 nl-littlerobots-version-catalog-update = "0.8.4"
 kotlin = "2.0.20"
+ui = "1.12.1"
 
 [libraries]
 androidx-activity-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
@@ -44,6 +45,7 @@ com-google-accompanist-accompanist-drawablepainter = { module = "com.google.acco
 com-google-dagger-hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "com-google-dagger" }
 com-google-dagger-hilt-android-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "com-google-dagger" }
 junit = { module = "junit:junit", version.ref = "junit" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
 
 [plugins]
 androidx-room = { id = "androidx.room", version.ref = "androidx-room" }

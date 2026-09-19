@@ -1,14 +1,7 @@
 package de.langerhans.odintools.ui.screens
 
-import android.media.MediaPlayer
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.ui.PlayerView
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import android.content.Intent
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -17,16 +10,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,10 +31,15 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import de.langerhans.odintools.R
 import de.langerhans.odintools.main.MainUiModel
 import de.langerhans.odintools.main.MainViewModel
@@ -75,6 +67,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     val haptic = LocalHapticFeedback.current
     val bgmPlayer = remember { MediaPlayer.create(context, R.raw.bgm_1).apply { isLooping = true } }
     val lifecycleOwner = LocalLifecycleOwner.current
+
     fun playSfx(resId: Int) {
         if (sfxEnabled) {
             MediaPlayer.create(context, resId)?.apply {
@@ -84,6 +77,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             }
         }
     }
+
     DisposableEffect(lifecycleOwner, bgmEnabled, showBootAnimation) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
@@ -98,9 +92,11 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+
     DisposableEffect(Unit) {
         onDispose { bgmPlayer.release() }
     }
+
     if (showBootAnimation) {
         VideoBootScreen(
             theme = finalTheme,
@@ -112,6 +108,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         )
         return
     }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -125,15 +122,15 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                 )
             )
             .onPreviewKeyEvent { event ->
-                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
                     when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_BUTTON_R1 -> {
+                        android.view.KeyEvent.KEYCODE_BUTTON_R1 -> {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             playSfx(R.raw.sfx_nav)
                             selectedTab = (selectedTab + 1).coerceAtMost(3)
                             true
                         }
-                        KeyEvent.KEYCODE_BUTTON_L1 -> {
+                        android.view.KeyEvent.KEYCODE_BUTTON_L1 -> {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             playSfx(R.raw.sfx_nav)
                             selectedTab = (selectedTab - 1).coerceAtLeast(0)
@@ -168,7 +165,8 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                             slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeOut(tween(300))
                     }
                 },
-                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp)
+                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
+                label = "tab_animation"
             ) { targetTab ->
                 when (targetTab) {
                     0 -> PerformancePanel(uiState, viewModel, finalTheme, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
@@ -195,31 +193,28 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 @Composable
 fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
     val context = LocalContext.current
-    // Constrói a URI apontando para o seu arquivo de vídeo na pasta res/raw/boot_video.mp4
     val videoUri = "android.resource://${context.packageName}/${R.raw.boot_video}"
-    // Inicializa o motor do ExoPlayer
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(videoUri))
             prepare()
-            playWhenReady = true // Dá o play automático
-            // Listener para detectar quando o vídeo acaba
+            playWhenReady = true
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
-                        onVideoEnded() // Aciona a navegação para a próxima tela
+                        onVideoEnded()
                     }
                 }
             })
         }
     }
-    // Libera a memória da GPU e RAM quando a tela for fechada
+
     DisposableEffect(Unit) {
         onDispose {
             exoPlayer.release()
         }
     }
-    // Renderiza o player em tela cheia com fundo preto
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -229,7 +224,7 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     player = exoPlayer
-                    useController = false // Esconde os botões de play/pause/barra de progresso
+                    useController = false
                 }
             },
             modifier = Modifier.matchParentSize()
@@ -273,6 +268,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     var expandedFan by remember { mutableStateOf(false) }
     val fanModes = listOf("Smart", "Quiet", "Balanced", "Sport", "Full (Max)")
     var selectedFan by remember { mutableStateOf(fanModes[0]) }
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Limites de Hardware", theme)
         ConsoleCard("AutoTDP Dinâmico", "Controla o consumo máximo de energia (W)", theme, playClick) {
@@ -313,6 +309,7 @@ fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
     var expandedProfile by remember { mutableStateOf(false) }
     val profiles = listOf("Nativo", "Vibrante", "Cinema", "Retrô")
     var selectedProfile by remember { mutableStateOf(profiles[0]) }
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Calibração de Tela", theme)
         ConsoleCard("Perfis de Imagem Global", selectedProfile, theme, { expandedProfile = true; playClick() }) {
@@ -363,19 +360,19 @@ fun SystemPanel(
     var blurEnabled by remember { mutableStateOf(false) }
     var blurIntensity by remember { mutableFloatStateOf(0.5f) }
     var selectedWallpaper by remember { mutableStateOf("static_wallpaper_1.png") }
-    val context = LocalContext.current
+
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
-            // Handle the selected image URI
             selectedWallpaper = it.toString()
         }
     }
+
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
-            // Handle the selected video URI
             selectedWallpaper = it.toString()
         }
     }
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Idioma e Região", theme)
         ConsoleCard("Idioma do Sistema", currentLanguage, theme, { expandedLang = true; playClick() }) {
@@ -436,6 +433,7 @@ fun SystemPanel(
         ConsoleCard("Wallpaper", "Selecionar Wallpaper", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Text("Wallpaper Selecionado: $selectedWallpaper", color = theme.text, fontFamily = theme.fontFamily)
+                Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = {
                     if (liveWallpaperType == "Static") {
                         imagePickerLauncher.launch("image/*")
@@ -486,6 +484,7 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
     val glassSurface = theme.surface.copy(alpha = 0.4f)
     val subtleBorder = theme.text.copy(alpha = 0.15f)
     val borderColor by animateColorAsState(targetValue = if (isFocused) theme.primary else subtleBorder, label = "cardBorder")
+
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = glassSurface),
@@ -505,7 +504,6 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
                 Spacer(modifier = Modifier.height(8.dp))
             }
             HorizontalDivider(color = theme.text.copy(alpha = 0.1f), thickness = 1.dp)
-            // A CORREÇÃO FOI FEITA AQUI: A Box foi substituída por Column
             Column(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.2f))) {
                 content()
             }
@@ -518,6 +516,7 @@ fun ConsoleToggle(checked: Boolean, theme: ConsoleTheme, onCheckedChange: (Boole
     val thumbOffset by animateDpAsState(targetValue = if (checked) 24.dp else 4.dp, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "toggleMove")
     val bgColor by animateColorAsState(targetValue = if (checked) theme.primary.copy(alpha = 0.3f) else theme.background, label = "toggleBg")
     val thumbColor by animateColorAsState(targetValue = if (checked) theme.primary else theme.text.copy(alpha = 0.5f), label = "toggleThumb")
+
     Box(
         modifier = Modifier
             .width(44.dp)
