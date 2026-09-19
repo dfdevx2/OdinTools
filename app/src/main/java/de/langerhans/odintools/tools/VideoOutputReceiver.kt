@@ -9,7 +9,6 @@ import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.models.ControllerStyle
 import de.langerhans.odintools.models.L2R2Style
-import de.langerhans.odintools.service.ForegroundAppWatcherService.Companion.OVERRIDE_DELAY
 import javax.inject.Inject
 
 @AndroidEntryPoint

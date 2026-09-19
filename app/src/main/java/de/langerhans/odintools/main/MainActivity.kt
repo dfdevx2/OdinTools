@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
                     SettingsScreen(
                         navigateToOverrideList = {
                             // Deixaremos o gancho pronto para quando refizermos a tela de overrides
+
                         }
                     )
                 }
