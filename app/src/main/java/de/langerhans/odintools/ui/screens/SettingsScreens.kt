@@ -1,5 +1,10 @@
 package de.langerhans.odintools.ui.screens
 
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import android.media.MediaPlayer
 import android.view.KeyEvent
 import androidx.compose.animation.*
@@ -19,19 +24,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,33 +46,26 @@ import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.ui.composables.*
 import de.langerhans.odintools.ui.theme.*
-import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrideList: () -> Unit) {
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-
     var isFirstRun by remember { mutableStateOf(true) }
     var showBootAnimation by remember { mutableStateOf(isFirstRun) }
-
     var currentThemeIndex by remember { mutableIntStateOf(1) }
     var useAmoledBlack by remember { mutableStateOf(false) }
     var currentLanguage by remember { mutableStateOf("Português (PT-BR)") }
-
     val rawTheme = AvailableThemes[currentThemeIndex]
     val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
-
     var bgmEnabled by remember { mutableStateOf(true) }
     var bgmVolume by remember { mutableFloatStateOf(0.3f) }
     var sfxEnabled by remember { mutableStateOf(true) }
     var sfxVolume by remember { mutableFloatStateOf(0.8f) }
-
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val bgmPlayer = remember { MediaPlayer.create(context, R.raw.bgm_1).apply { isLooping = true } }
     val lifecycleOwner = LocalLifecycleOwner.current
-
     fun playSfx(resId: Int) {
         if (sfxEnabled) {
             MediaPlayer.create(context, resId)?.apply {
@@ -81,7 +75,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             }
         }
     }
-
     DisposableEffect(lifecycleOwner, bgmEnabled, showBootAnimation) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
@@ -92,20 +85,17 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         bgmPlayer.setVolume(bgmVolume, bgmVolume)
-
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-
     DisposableEffect(Unit) {
         onDispose { bgmPlayer.release() }
     }
-
     if (showBootAnimation) {
-        BootAndWelcomeScreen(
+        VideoBootScreen(
             theme = finalTheme,
-            onFinish = {
+            onVideoEnded = {
                 showBootAnimation = false
                 isFirstRun = false
                 playSfx(R.raw.sfx_select)
@@ -113,7 +103,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         )
         return
     }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -147,7 +136,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             }
     ) {
         Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
-
             Text(
                 text = "ODIN HUB",
                 fontSize = 28.sp,
@@ -157,11 +145,9 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                 letterSpacing = 2.sp,
                 modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp)
             )
-
             ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme) {
                 if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it }
             }
-
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
@@ -198,64 +184,58 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 // TELA DE BOOT (OOBE)
 // ==========================================
 @Composable
-fun BootAndWelcomeScreen(theme: ConsoleTheme, onFinish: () -> Unit) {
-    var stage by remember { mutableIntStateOf(0) }
+fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
+    val context = LocalContext.current
 
-    val textScale by animateFloatAsState(targetValue = when (stage) { 0 -> 0.8f; 1, 2 -> 1.0f; else -> 2.5f }, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow), label = "scale")
-    val textAlpha by animateFloatAsState(targetValue = when (stage) { 0 -> 0f; 1, 2 -> 1f; else -> 0f }, animationSpec = tween(800), label = "alpha")
-    val glowPosition by animateFloatAsState(targetValue = if (stage >= 2) 2000f else -500f, animationSpec = tween(1500, easing = LinearEasing), label = "glow")
-    val welcomeAlpha by animateFloatAsState(targetValue = if (stage == 4) 1f else 0f, animationSpec = tween(1000), label = "welcomeAlpha")
+    // Constrói a URI apontando para o seu arquivo de vídeo na pasta res/raw/boot_video.mp4
+    val videoUri = "android.resource://${context.packageName}/${R.raw.boot_video}"
 
-    LaunchedEffect(Unit) {
-        delay(300)
-        stage = 1
-        delay(800)
-        stage = 2
-        delay(1200)
-        stage = 3
-        delay(600)
-        stage = 4
+    // Inicializa o motor do ExoPlayer
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUri))
+            prepare()
+            playWhenReady = true // Dá o play automático
+
+            // Listener para detectar quando o vídeo acaba
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) {
+                        onVideoEnded() // Aciona a navegação para a próxima tela
+                    }
+                }
+            })
+        }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        if (stage < 4) {
-            Text(
-                text = "ODIN HUB",
-                fontSize = 56.sp,
-                fontFamily = theme.fontFamily,
-                fontWeight = FontWeight.Black,
-                color = theme.primary.copy(alpha = textAlpha),
-                letterSpacing = 10.sp,
-                modifier = Modifier
-                    .scale(textScale)
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.linearGradient(
-                                colors = listOf(Color.Transparent, Color.White.copy(alpha = textAlpha * 0.8f), Color.Transparent),
-                                start = Offset(glowPosition, 0f),
-                                end = Offset(glowPosition + 300f, 0f)
-                            )
-                        )
-                    }
-            )
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.padding(32.dp).graphicsLayer(alpha = welcomeAlpha)) {
-                Text("Bem-vindo ao Odin Hub", fontSize = 32.sp, fontFamily = theme.fontFamily, color = Color.White, fontWeight = FontWeight.Bold)
-                Text("Sua central de jogos e desempenho definitiva.", fontSize = 16.sp, color = Color.LightGray, fontFamily = theme.fontFamily)
-
-                Button(onClick = onFinish, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.padding(top = 24.dp)) {
-                    Text("ENTRAR NO SISTEMA", fontFamily = theme.fontFamily, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(8.dp))
-                }
-            }
+    // Libera a memória da GPU e RAM quando a tela for fechada
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
         }
+    }
+
+    // Renderiza o player em tela cheia com fundo preto
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false // Esconde os botões de play/pause/barra de progresso
+                }
+            },
+            modifier = Modifier.matchParentSize()
+        )
     }
 }
 
 // ==========================================
 // ABAS E PAINEIS
 // ==========================================
-
 @Composable
 fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -270,7 +250,6 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -
 fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, theme: ConsoleTheme, onClick: (Int) -> Unit) {
     val isSelected = selectedTab == index
     val color by animateColorAsState(if (isSelected) theme.primary else theme.text.copy(alpha = 0.4f), label = "tabColor")
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick(index) }.padding(8.dp)
@@ -290,17 +269,14 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     var expandedFan by remember { mutableStateOf(false) }
     val fanModes = listOf("Smart", "Quiet", "Balanced", "Sport", "Full (Max)")
     var selectedFan by remember { mutableStateOf(fanModes[0]) }
-
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Limites de Hardware", theme)
-
         ConsoleCard("AutoTDP Dinâmico", "Controla o consumo máximo de energia (W)", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text("Limite Global: ${tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(value = tdpValue, onValueChange = { tdpValue = it }, valueRange = 5f..30f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-
         ConsoleCard("Frequências Manuais (Clock)", "Ajuste individual de CPU e GPU", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text("Max CPU: ${cpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
@@ -310,14 +286,12 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 Slider(value = gpuClock, onValueChange = { gpuClock = it }, valueRange = 300f..1100f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-
         ConsoleSectionHeader("Refrigeração", theme)
         ConsoleCard("Controle da Ventoinha (Fan)", selectedFan, theme, { expandedFan = true; playClick() }) {
             DropdownMenu(expanded = expandedFan, onDismissRequest = { expandedFan = false }, modifier = Modifier.background(theme.surface)) {
                 fanModes.forEach { mode -> DropdownMenuItem(text = { Text(mode, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { selectedFan = mode; expandedFan = false; playClick() }) }
             }
         }
-
         ConsoleCard("Overrides por Jogo", "Configurar regras específicas", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Habilitar Overrides", color = theme.text, fontFamily = theme.fontFamily)
@@ -335,7 +309,6 @@ fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
     var expandedProfile by remember { mutableStateOf(false) }
     val profiles = listOf("Nativo", "Vibrante", "Cinema", "Retrô")
     var selectedProfile by remember { mutableStateOf(profiles[0]) }
-
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader("Calibração de Tela", theme)
         ConsoleCard("Perfis de Imagem Global", selectedProfile, theme, { expandedProfile = true; playClick() }) {
@@ -382,9 +355,7 @@ fun SystemPanel(
 ) {
     var expandedLang by remember { mutableStateOf(false) }
     var expandedTheme by remember { mutableStateOf(false) }
-
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
         ConsoleSectionHeader("Idioma e Região", theme)
         ConsoleCard("Idioma do Sistema", currentLanguage, theme, { expandedLang = true; playClick() }) {
             DropdownMenu(expanded = expandedLang, onDismissRequest = { expandedLang = false }, modifier = Modifier.background(theme.surface)) {
@@ -393,7 +364,6 @@ fun SystemPanel(
                 }
             }
         }
-
         ConsoleSectionHeader("Personalização UI", theme)
         ConsoleCard("Tema do Console", AvailableThemes[currentThemeIndex].name, theme, { expandedTheme = true; playClick() }) {
             DropdownMenu(expanded = expandedTheme, onDismissRequest = { expandedTheme = false }, modifier = Modifier.background(theme.surface)) {
@@ -408,7 +378,6 @@ fun SystemPanel(
                 ConsoleToggle(checked = amoledBlack, theme = theme, onCheckedChange = { onAmoledToggle(it); playClick() })
             }
         }
-
         ConsoleSectionHeader("Mixer de Áudio", theme)
         ConsoleCard("Música de Fundo (BGM)", "Volume: ${(bgmVolume * 100).toInt()}%", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -419,7 +388,6 @@ fun SystemPanel(
                 Slider(value = bgmVolume, onValueChange = { onBgmVolume(it) }, enabled = bgmEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-
         ConsoleCard("Efeitos Sonoros (SFX)", "Volume: ${(sfxVolume * 100).toInt()}%", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -429,7 +397,6 @@ fun SystemPanel(
                 Slider(value = sfxVolume, onValueChange = { onSfxVolume(it) }, enabled = sfxEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-
         ConsoleSectionHeader("Sobre o Sistema", theme)
         ConsoleCard("Odin Hub", "Versão 0.5 - Desenvolvido por Seu Nome", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -451,7 +418,6 @@ fun SystemPanel(
 // ==========================================
 // COMPONENTES CUSTOMIZADOS (Estilo Glassmorphism)
 // ==========================================
-
 @Composable
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
     Text(title.uppercase(), fontSize = 14.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = theme.text.copy(alpha = 0.5f), letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 4.dp).padding(top = 8.dp))
@@ -462,18 +428,14 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val haptic = LocalHapticFeedback.current
-
     LaunchedEffect(isFocused) {
         if (isFocused) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
-
     val scale by animateFloatAsState(targetValue = if (isFocused) 1.02f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
     val glow by animateDpAsState(targetValue = if (isFocused) 16.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
-
     val glassSurface = theme.surface.copy(alpha = 0.4f)
     val subtleBorder = theme.text.copy(alpha = 0.15f)
     val borderColor by animateColorAsState(targetValue = if (isFocused) theme.primary else subtleBorder, label = "cardBorder")
-
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = glassSurface),
@@ -493,7 +455,6 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
                 Spacer(modifier = Modifier.height(8.dp))
             }
             HorizontalDivider(color = theme.text.copy(alpha = 0.1f), thickness = 1.dp)
-
             // A CORREÇÃO FOI FEITA AQUI: A Box foi substituída por Column
             Column(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.2f))) {
                 content()
@@ -507,7 +468,6 @@ fun ConsoleToggle(checked: Boolean, theme: ConsoleTheme, onCheckedChange: (Boole
     val thumbOffset by animateDpAsState(targetValue = if (checked) 24.dp else 4.dp, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "toggleMove")
     val bgColor by animateColorAsState(targetValue = if (checked) theme.primary.copy(alpha = 0.3f) else theme.background, label = "toggleBg")
     val thumbColor by animateColorAsState(targetValue = if (checked) theme.primary else theme.text.copy(alpha = 0.5f), label = "toggleThumb")
-
     Box(
         modifier = Modifier
             .width(44.dp)

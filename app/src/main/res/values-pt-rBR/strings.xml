@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Nome do Aplicativo -->
-    <string name="appName">OdinTools OS</string>
+    <string name="appName">OdinHub</string>
 
     <!-- Modos e Estados -->
     <string name="xbox">Xbox</string>
