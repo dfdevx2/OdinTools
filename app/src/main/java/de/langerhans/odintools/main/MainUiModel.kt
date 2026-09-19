@@ -43,5 +43,5 @@ data class MainUiModel(
 data class CheckboxPreferenceUiModel(
     val key: String,
     val text: Int,
-    val checked: Boolean
+    var checked: Boolean // <-- O segredo está aqui: mudar de 'val' para 'var'
 )
