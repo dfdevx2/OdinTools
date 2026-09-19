@@ -131,7 +131,15 @@ class MainViewModel @Inject constructor(
 
     fun updateUseRoot(useRoot: Boolean) {
         _uiState.update { it.copy(useRootTarget = useRoot) }
-        executor.forceKernelSU = useRoot
+        performanceManager.isKsuModuleActive = useRoot // Liga/Desliga o overhead do loop
+        // Se ativou o modo Root num perfil de clock fixo, aplicamos uma vez pra garantir
+        if (useRoot && _uiState.value.performanceProfile != "Smart") {
+            performanceManager.applyAbsoluteClocks(
+                (_uiState.value.cpuPerfClock * 1000).toLong(),
+                (_uiState.value.cpuPrimeClock * 1000).toLong(),
+                (_uiState.value.gpuClock * 1000000).toLong()
+            )
+        }
     }
 
     fun showSaveProfileDialog() {

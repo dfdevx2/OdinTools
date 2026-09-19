@@ -467,10 +467,10 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
-        ConsoleSectionHeader(if (isEn) "Engine & Profiles" else "Motor e Perfis", theme)
-        ConsoleCard(if (isEn) "Execution Engine" else "Motor de Execução", if (isEn) "Choose Sysfs writer" else "Escolher método de escrita no hardware", theme, playClick) {
+        ConsoleSectionHeader(if (isEn) "Engine & Optimization" else "Motor e Otimização", theme)
+        ConsoleCard(if (isEn) "KSU Module Integration" else "Módulo KSU", if (isEn) "Toggle if Odin Hub KSU module is installed" else "Ative se instalou o Módulo KSU (Remove overhead)", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (uiState.useRootTarget) "KernelSU (Root) - Máxima Eficiência" else "Pulse Engine (No-Root)", color = theme.text, fontFamily = theme.fontFamily)
+                Text(if (uiState.useRootTarget) "Módulo KSU (Sem Overhead)" else "Modo Pulse (Loop PServer)", color = theme.text, fontFamily = theme.fontFamily)
                 ConsoleToggle(checked = uiState.useRootTarget, theme = theme, onCheckedChange = { viewModel.updateUseRoot(it); playClick() })
             }
         }

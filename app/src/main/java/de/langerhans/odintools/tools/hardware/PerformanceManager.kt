@@ -22,19 +22,22 @@ class PerformanceManager @Inject constructor(
 
     // Limites de Frequência Absolutos Reais do Chip
     private val PRIME_MAX_KHZ = 4320000L
-    private val PRIME_MIN_KHZ = 2246000L // Corrigido
+    private val PRIME_MIN_KHZ = 2246000L
     private val PERF_MAX_KHZ = 3530000L
-    private val PERF_MIN_KHZ = 1735000L // Corrigido
+    private val PERF_MIN_KHZ = 1735000L
     private val GPU_MAX_HZ = 1100000000L
-    private val GPU_MIN_HZ = 160000000L // Corrigido
+    private val GPU_MIN_HZ = 160000000L
 
-    // Rastreio dos Clocks do Loop
+    // Rastreio dos Clocks e Estados
     private var targetPerf = PERF_MAX_KHZ
     private var targetPrime = PRIME_MAX_KHZ
     private var targetGpu = GPU_MAX_HZ
 
     private var isAutoTdp = false
     private var targetWatts = 15f
+
+    // Controlado pela Interface (Se ativado, desliga o overhead de loop para clocks manuais)
+    var isKsuModuleActive = false
 
     init {
         startHardwareDaemon()
@@ -45,9 +48,15 @@ class PerformanceManager @Inject constructor(
         hardwareJob = scope.launch {
             while (isActive) {
                 if (isAutoTdp) {
+                    // AutoTDP SEMPRE precisa rodar o loop para ler a bateria e ajustar o clock dinamicamente
                     calculateAutoTdpStep()
+                    writeLimitsToSysfs()
+                } else if (!isKsuModuleActive) {
+                    // MODO PULSE (SEM ROOT): Clock fixo, mas precisa reescrever a cada 1s pra vencer o daemon da AYN
+                    writeLimitsToSysfs()
                 }
-                writeLimitsToSysfs()
+                // Se isAutoTdp for falso E isKsuModuleActive for verdadeiro, o loop descansa e não gasta CPU!
+
                 delay(1000)
             }
         }
@@ -69,11 +78,11 @@ class PerformanceManager @Inject constructor(
     }
 
     private fun writeLimitsToSysfs() {
-        if (!executor.pServerAvailable && !executor.forceKernelSU) return
+        if (!executor.pServerAvailable) return
 
-        executor.executeAsRoot("chmod 644 $SYSFS_CPU_PERF_MAX && echo $targetPerf > $SYSFS_CPU_PERF_MAX")
-        executor.executeAsRoot("chmod 644 $SYSFS_CPU_PRIME_MAX && echo $targetPrime > $SYSFS_CPU_PRIME_MAX")
-        executor.executeAsRoot("chmod 644 $SYSFS_GPU_MAX && echo $targetGpu > $SYSFS_GPU_MAX")
+        executor.executeAsRoot("echo $targetPerf > $SYSFS_CPU_PERF_MAX")
+        executor.executeAsRoot("echo $targetPrime > $SYSFS_CPU_PRIME_MAX")
+        executor.executeAsRoot("echo $targetGpu > $SYSFS_GPU_MAX")
     }
 
     fun applyDynamicTdp(watts: Float) {
@@ -89,6 +98,7 @@ class PerformanceManager @Inject constructor(
         targetPerf = perfClockKHz
         targetPrime = primeClockKHz
         targetGpu = gpuClockHz
+        // Dispara uma vez na hora pra aplicar
         writeLimitsToSysfs()
     }
 
