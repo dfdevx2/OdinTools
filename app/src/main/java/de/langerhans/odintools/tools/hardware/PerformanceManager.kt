@@ -1,6 +1,7 @@
 package de.langerhans.odintools.tools.hardware
 
 import android.util.Log
+import de.langerhans.odintools.tools.ShellExecutor
 import kotlinx.coroutines.*
 import java.io.File
 import javax.inject.Inject
@@ -8,18 +9,20 @@ import javax.inject.Singleton
 import kotlin.math.abs
 
 @Singleton
-class PerformanceManager @Inject constructor() {
-
-    private val executor: SysfsExecutor = RootExecutor()
+class PerformanceManager @Inject constructor(
+    // Aqui injetamos o motor nativo do OdinTools.
+    // Ele usa o PServer da AYN por padrão (e cai pro Root se o PServer falhar).
+    private val executor: ShellExecutor
+) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var autoTdpJob: Job? = null
+    private var hardwareJob: Job? = null
 
     // Caminhos Sysfs (Snapdragon 8 Elite SM8750)
     private val SYSFS_CPU_PERF_MAX = "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq"
     private val SYSFS_CPU_PRIME_MAX = "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
     private val SYSFS_GPU_MAX = "/sys/class/kgsl/kgsl-3d0/max_gpuclk"
 
-    // Limites de Frequência (KHz) Absolutos do Chip
+    // Limites de Frequência Absolutos do Chip
     private val PRIME_MAX_KHZ = 4320000L
     private val PRIME_MIN_KHZ = 1000000L
     private val PERF_MAX_KHZ = 3530000L
@@ -27,55 +30,85 @@ class PerformanceManager @Inject constructor() {
     private val GPU_MAX_HZ = 1100000000L
     private val GPU_MIN_HZ = 300000000L
 
-    // Rastreio atual dos clocks do loop
-    private var currentPerfClock = PERF_MAX_KHZ
-    private var currentPrimeClock = PRIME_MAX_KHZ
-    private var currentGpuClock = GPU_MAX_HZ
+    // Rastreio dos Clocks do Loop
+    private var targetPerf = PERF_MAX_KHZ
+    private var targetPrime = PRIME_MAX_KHZ
+    private var targetGpu = GPU_MAX_HZ
+
+    private var isAutoTdp = false
+    private var targetWatts = 15f
+
+    init {
+        startHardwareDaemon()
+    }
 
     /**
-     * O Verdadeiro Daemon de AutoTDP.
-     * Fica em loop infinito lendo a bateria e subindo/descendo os clocks.
+     * O SEGREDO REVELADO: O "Daemon de Batalha".
+     * Fica em loop infinito para vencer o daemon nativo (game-boost) da AYN.
      */
-    fun applyDynamicTdp(targetWatts: Float) {
-        autoTdpJob?.cancel() // Mata o loop anterior
+    private fun startHardwareDaemon() {
+        hardwareJob?.cancel()
+        hardwareJob = scope.launch {
+            while (isActive) {
+                if (isAutoTdp) {
+                    calculateAutoTdpStep()
+                }
 
-        // Se pedir o máximo, libera geral as comportas
-        if (targetWatts >= 25f) {
-            applyAbsoluteClocks(PERF_MAX_KHZ, PRIME_MAX_KHZ, GPU_MAX_HZ)
+                // Re-assert: Reescreve os limites no PServer a cada 1 segundo
+                writeLimitsToSysfs()
+
+                delay(1000) // Poll Tick (Cadência de repetição)
+            }
+        }
+    }
+
+    /**
+     * Lógica de AutoTDP que lê a bateria física e castiga os clocks dinamicamente
+     */
+    private fun calculateAutoTdpStep() {
+        val currentPowerDraw = getRealTimePowerDrawWatts()
+        if (currentPowerDraw <= 0f) return // Pula se o sensor falhar
+
+        if (currentPowerDraw > targetWatts + 0.5f) {
+            // Corta a energia descendo os clocks em 5%
+            targetPerf = (targetPerf * 0.95).toLong().coerceAtLeast(PERF_MIN_KHZ)
+            targetPrime = (targetPrime * 0.95).toLong().coerceAtLeast(PRIME_MIN_KHZ)
+            targetGpu = (targetGpu * 0.95).toLong().coerceAtLeast(GPU_MIN_HZ)
+        } else if (currentPowerDraw < targetWatts - 0.5f) {
+            // Folga de energia, sobe os clocks em 5% pra ganhar FPS
+            targetPerf = (targetPerf * 1.05).toLong().coerceAtMost(PERF_MAX_KHZ)
+            targetPrime = (targetPrime * 1.05).toLong().coerceAtMost(PRIME_MAX_KHZ)
+            targetGpu = (targetGpu * 1.05).toLong().coerceAtMost(GPU_MAX_HZ)
+        }
+    }
+
+    private fun writeLimitsToSysfs() {
+        if (!executor.pServerAvailable) {
+            Log.e("OdinHub_Hardware", "PServerBinder Indisponível!")
             return
         }
 
-        // Começa com metade do clock para o ajuste ser suave
-        currentPerfClock = PERF_MAX_KHZ / 2
-        currentPrimeClock = PRIME_MAX_KHZ / 2
-        currentGpuClock = GPU_MAX_HZ / 2
+        // Execução pelo PServer/ShellExecutor
+        executor.executeAsRoot("chmod 644 $SYSFS_CPU_PERF_MAX && echo $targetPerf > $SYSFS_CPU_PERF_MAX")
+        executor.executeAsRoot("chmod 644 $SYSFS_CPU_PRIME_MAX && echo $targetPrime > $SYSFS_CPU_PRIME_MAX")
+        executor.executeAsRoot("chmod 644 $SYSFS_GPU_MAX && echo $targetGpu > $SYSFS_GPU_MAX")
+    }
 
-        autoTdpJob = scope.launch {
-            while (isActive) {
-                val currentPowerDraw = getRealTimePowerDrawWatts()
+    fun applyDynamicTdp(watts: Float) {
+        isAutoTdp = true
+        targetWatts = watts.coerceIn(3f, 25f)
+        // Começa com clocks moderados para o loop estabilizar a corrente
+        targetPerf = PERF_MAX_KHZ / 2
+        targetPrime = PRIME_MAX_KHZ / 2
+        targetGpu = GPU_MAX_HZ / 2
+    }
 
-                // Margem de tolerância (0.5W) para o emulador não ficar com engasgos (stuttering)
-                if (currentPowerDraw > targetWatts + 0.5f) {
-                    // CORTA A ENERGIA (Desce os clocks em 5%)
-                    currentPerfClock = (currentPerfClock * 0.95).toLong().coerceAtLeast(PERF_MIN_KHZ)
-                    currentPrimeClock = (currentPrimeClock * 0.95).toLong().coerceAtLeast(PRIME_MIN_KHZ)
-                    currentGpuClock = (currentGpuClock * 0.95).toLong().coerceAtLeast(GPU_MIN_HZ)
-
-                    applyAbsoluteClocks(currentPerfClock, currentPrimeClock, currentGpuClock, fromLoop = true)
-
-                } else if (currentPowerDraw < targetWatts - 0.5f) {
-                    // FOLGA DE ENERGIA (Sobe os clocks em 5% pra garantir FPS)
-                    currentPerfClock = (currentPerfClock * 1.05).toLong().coerceAtMost(PERF_MAX_KHZ)
-                    currentPrimeClock = (currentPrimeClock * 1.05).toLong().coerceAtMost(PRIME_MAX_KHZ)
-                    currentGpuClock = (currentGpuClock * 1.05).toLong().coerceAtMost(GPU_MAX_HZ)
-
-                    applyAbsoluteClocks(currentPerfClock, currentPrimeClock, currentGpuClock, fromLoop = true)
-                }
-
-                // Velocidade de reação do TDP: Lê a bateria a cada 1 segundo
-                delay(1000)
-            }
-        }
+    fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long) {
+        isAutoTdp = false
+        targetPerf = perfClockKHz
+        targetPrime = primeClockKHz
+        targetGpu = gpuClockHz
+        writeLimitsToSysfs() // Aplica a trava dura imediatamente
     }
 
     fun applyProfile(profile: String) {
@@ -84,39 +117,30 @@ class PerformanceManager @Inject constructor() {
             "Balanced" -> applyDynamicTdp(10f)
             "Smart" -> applyDynamicTdp(15f)
             "Triple A" -> applyDynamicTdp(20f)
-            "Full" -> applyDynamicTdp(25f)
+            "Full" -> {
+                isAutoTdp = false
+                targetPerf = PERF_MAX_KHZ
+                targetPrime = PRIME_MAX_KHZ
+                targetGpu = GPU_MAX_HZ
+                writeLimitsToSysfs()
+            }
         }
     }
 
     /**
-     * Trava dura de clocks manuais
-     */
-    fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long, fromLoop: Boolean = false) {
-        // Se a chamada veio da interface (slider manual), o usuário quer matar o AutoTDP
-        if (!fromLoop) autoTdpJob?.cancel()
-
-        if (!executor.isAvailable()) return
-
-        executor.write(SYSFS_CPU_PERF_MAX, perfClockKHz.toString())
-        executor.write(SYSFS_CPU_PRIME_MAX, primeClockKHz.toString())
-        executor.write(SYSFS_GPU_MAX, gpuClockHz.toString())
-    }
-
-    /**
-     * Lê a API padrão de bateria do Kernel Linux (V x A = W)
+     * Leitura física do sensor de bateria (V x A = W)
      */
     private fun getRealTimePowerDrawWatts(): Float {
         return try {
             val currentUaStr = File("/sys/class/power_supply/battery/current_now").readText().trim()
             val voltageUvStr = File("/sys/class/power_supply/battery/voltage_now").readText().trim()
 
-            // Converte microAmperes e microVolts para Amperes e Volts reais
             val amps = abs(currentUaStr.toFloat() / 1_000_000f)
             val volts = voltageUvStr.toFloat() / 1_000_000f
 
             amps * volts
         } catch (e: Exception) {
-            Log.e("OdinHub_AutoTDP", "Falha ao ler bateria, retornando 0", e)
+            Log.e("OdinHub_AutoTDP", "Erro no sensor da bateria", e)
             0f
         }
     }
