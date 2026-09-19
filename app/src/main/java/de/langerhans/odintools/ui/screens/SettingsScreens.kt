@@ -63,13 +63,14 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     var selectedTab by remember { mutableIntStateOf(0) }
     var isFirstRun by remember { mutableStateOf(true) }
 
-    // Controle de Fluxo Isolado
     var showWelcomeSetup by remember { mutableStateOf(isFirstRun) }
     var showBootAnimation by remember { mutableStateOf(false) }
 
     var currentThemeIndex by remember { mutableIntStateOf(1) }
     var useAmoledBlack by remember { mutableStateOf(false) }
     var currentLanguage by remember { mutableStateOf("Português (PT-BR)") }
+    val isEn = currentLanguage == "English (US)"
+
     val rawTheme = AvailableThemes[currentThemeIndex]
     val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
 
@@ -89,7 +90,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 
     var selectedStaticRes by remember { mutableIntStateOf(defaultStaticRes) }
     var selectedCustomUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedWallpaperName by remember { mutableStateOf("Predefinição 1") }
+    var selectedWallpaperName by remember { mutableStateOf(if (isEn) "Preset 1" else "Predefinição 1") }
 
     val haptic = LocalHapticFeedback.current
     val bgmPlayer = remember { MediaPlayer.create(context, R.raw.bgm_1).apply { isLooping = true } }
@@ -129,7 +130,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 
     DisposableEffect(Unit) { onDispose { bgmPlayer.release() } }
 
-    // Roteamento Modular: Chama a Tela de Boas-Vindas do arquivo WelcomeScreen.kt
     if (showWelcomeSetup) {
         WelcomeScreen(
             theme = finalTheme,
@@ -153,7 +153,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         return
     }
 
-    // Roteamento Modular: Tela de Boot
     if (showBootAnimation) {
         VideoBootScreen(
             theme = finalTheme,
@@ -166,7 +165,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         return
     }
 
-    // Camada Principal (Odin Hub)
     Box(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize().background(finalTheme.background))
 
@@ -181,6 +179,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                 } else {
                     defaultVideoUri
                 }
+                // Agora o LiveWallpaperRenderer recebe o URI externamente e muda de mídia sem recriar o player
                 LiveWallpaperRenderer(uri = activeVideoUri)
 
                 if (blurEnabled) {
@@ -252,7 +251,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                     letterSpacing = 2.sp,
                     modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp)
                 )
-                ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme) {
+                ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn) {
                     if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it }
                 }
                 AnimatedContent(
@@ -270,11 +269,11 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                     label = "tab_animation"
                 ) { targetTab ->
                     when (targetTab) {
-                        0 -> PerformancePanel(uiState, viewModel, finalTheme, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
-                        1 -> DisplayPanel(finalTheme) { playSfx(R.raw.sfx_select) }
-                        2 -> ControlsPanel(uiState, viewModel, finalTheme) { playSfx(R.raw.sfx_select) }
+                        0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
+                        1 -> DisplayPanel(finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                        2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
                         3 -> SystemPanel(
-                            theme = finalTheme, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage,
+                            theme = finalTheme, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage, isEn = isEn,
                             amoledBlack = useAmoledBlack, bgmEnabled = bgmEnabled, bgmVolume = bgmVolume, sfxEnabled = sfxEnabled, sfxVolume = sfxVolume,
                             liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity,
                             selectedWallpaperName = selectedWallpaperName,
@@ -287,11 +286,11 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                                 liveWallpaperType = type
                                 if (type == "Live (MP4)") {
                                     selectedCustomUri = null
-                                    selectedWallpaperName = "Live Wallpaper Padrão"
+                                    selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão"
                                 } else {
                                     selectedCustomUri = null
                                     selectedStaticRes = R.drawable.static_wallpaper_1
-                                    selectedWallpaperName = "Predefinição 1"
+                                    selectedWallpaperName = if (isEn) "Preset 1" else "Predefinição 1"
                                 }
                             },
                             onBlurToggle = { blurEnabled = it; playSfx(R.raw.sfx_select) }, onBlurIntensityChange = { blurIntensity = it },
@@ -303,7 +302,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                             },
                             onPresetVideoSelected = {
                                 selectedCustomUri = null
-                                selectedWallpaperName = "Live Wallpaper Padrão"
+                                selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão"
                             },
                             onCustomUriSelected = { uri, name ->
                                 selectedCustomUri = uri
@@ -318,28 +317,28 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 }
 
 // ==========================================
-// RENDERIZADORES DE WALLPAPER
+// RENDERIZADORES DE WALLPAPER CORRIGIDOS
 // ==========================================
 @Composable
 fun LiveWallpaperRenderer(uri: Uri) {
     val context = LocalContext.current
-    val exoPlayer = remember(uri) {
+
+    // O segredo: instanciar o ExoPlayer apenas UMA VEZ
+    val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(uri))
             repeatMode = Player.REPEAT_MODE_ALL
             volume = 0f
-            prepare()
-            playWhenReady = true
         }
     }
 
+    // O LaunchedEffect atualiza a mídia e dá o Play sempre que o URI mudar (não congela mais!)
     LaunchedEffect(uri) {
         exoPlayer.setMediaItem(MediaItem.fromUri(uri))
         exoPlayer.prepare()
-        exoPlayer.play()
+        exoPlayer.playWhenReady = true
     }
 
-    DisposableEffect(uri) {
+    DisposableEffect(Unit) {
         onDispose { exoPlayer.release() }
     }
 
@@ -391,9 +390,6 @@ fun StaticWallpaperRenderer(resId: Int?, uri: Uri?, blurModifier: Modifier = Mod
     }
 }
 
-// ==========================================
-// TELA DE BOOT (OOBE)
-// ==========================================
 @Composable
 fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
     val context = LocalContext.current
@@ -430,15 +426,15 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
 }
 
 // ==========================================
-// ABAS E PAINEIS
+// ABAS E PAINEIS (COM SUPORTE A IDIOMA)
 // ==========================================
 @Composable
-fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, onTabSelected: (Int) -> Unit) {
+fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, isEn: Boolean, onTabSelected: (Int) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         ConsoleTabItem(0, "PERFORMANCE", R.drawable.ic_sliders, selectedTab, theme, onTabSelected)
         ConsoleTabItem(1, "DISPLAY", R.drawable.ic_palette, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(2, "CONTROLES", R.drawable.ic_gamepad, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(3, "SISTEMA", R.drawable.ic_app_settings, selectedTab, theme, onTabSelected)
+        ConsoleTabItem(2, if (isEn) "CONTROLS" else "CONTROLES", R.drawable.ic_gamepad, selectedTab, theme, onTabSelected)
+        ConsoleTabItem(3, if (isEn) "SYSTEM" else "SISTEMA", R.drawable.ic_app_settings, selectedTab, theme, onTabSelected)
     }
 }
 
@@ -458,7 +454,7 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 }
 
 @Composable
-fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
+fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
     var tdpValue by remember { mutableFloatStateOf(15f) }
     var cpuClock by remember { mutableFloatStateOf(3200f) }
     var gpuClock by remember { mutableFloatStateOf(800f) }
@@ -467,14 +463,14 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     var selectedFan by remember { mutableStateOf(fanModes[0]) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("Limites de Hardware", theme)
-        ConsoleCard("AutoTDP Dinâmico", "Controla o consumo máximo de energia (W)", theme, playClick) {
+        ConsoleSectionHeader(if (isEn) "Hardware Limits" else "Limites de Hardware", theme)
+        ConsoleCard(if (isEn) "Dynamic AutoTDP" else "AutoTDP Dinâmico", if (isEn) "Controls maximum power draw (W)" else "Controla o consumo máximo de energia (W)", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("Limite Global: ${tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
+                Text(if (isEn) "Global Limit: ${tdpValue.toInt()} W" else "Limite Global: ${tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(value = tdpValue, onValueChange = { tdpValue = it }, valueRange = 5f..30f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-        ConsoleCard("Frequências Manuais (Clock)", "Ajuste individual de CPU e GPU", theme, playClick) {
+        ConsoleCard(if (isEn) "Manual Clocks" else "Frequências Manuais (Clock)", if (isEn) "Individual CPU & GPU tuning" else "Ajuste individual de CPU e GPU", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text("Max CPU: ${cpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(value = cpuClock, onValueChange = { cpuClock = it }, valueRange = 1000f..4200f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
@@ -483,15 +479,15 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 Slider(value = gpuClock, onValueChange = { gpuClock = it }, valueRange = 300f..1100f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-        ConsoleSectionHeader("Refrigeração", theme)
-        ConsoleCard("Controle da Ventoinha (Fan)", selectedFan, theme, { expandedFan = true; playClick() }) {
+        ConsoleSectionHeader(if (isEn) "Cooling" else "Refrigeração", theme)
+        ConsoleCard(if (isEn) "Fan Control" else "Controle da Ventoinha (Fan)", selectedFan, theme, { expandedFan = true; playClick() }) {
             DropdownMenu(expanded = expandedFan, onDismissRequest = { expandedFan = false }, modifier = Modifier.background(theme.surface)) {
                 fanModes.forEach { mode -> DropdownMenuItem(text = { Text(mode, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { selectedFan = mode; expandedFan = false; playClick() }) }
             }
         }
-        ConsoleCard("Overrides por Jogo", "Configurar regras específicas", theme, playClick) {
+        ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific rules" else "Configurar regras específicas", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Habilitar Overrides", color = theme.text, fontFamily = theme.fontFamily)
+                Text(if (isEn) "Enable Overrides" else "Habilitar Overrides", color = theme.text, fontFamily = theme.fontFamily)
                 ConsoleToggle(checked = uiState.appOverridesEnabled, theme = theme, onCheckedChange = { viewModel.appOverridesEnabled(it); playClick() })
             }
             TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.appOverrides, description = R.string.appOverridesDescription) { playClick(); navigateToOverrideList() }
@@ -500,26 +496,26 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 }
 
 @Composable
-fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
+fun DisplayPanel(theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
     var satValue by remember { mutableFloatStateOf(1.0f) }
     var tempValue by remember { mutableFloatStateOf(6500f) }
     var expandedProfile by remember { mutableStateOf(false) }
-    val profiles = listOf("Nativo", "Vibrante", "Cinema", "Retrô")
+    val profiles = if (isEn) listOf("Native", "Vibrant", "Cinema", "Retro") else listOf("Nativo", "Vibrante", "Cinema", "Retrô")
     var selectedProfile by remember { mutableStateOf(profiles[0]) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("Calibração de Tela", theme)
-        ConsoleCard("Perfis de Imagem Global", selectedProfile, theme, { expandedProfile = true; playClick() }) {
+        ConsoleSectionHeader(if (isEn) "Screen Calibration" else "Calibração de Tela", theme)
+        ConsoleCard(if (isEn) "Global Image Profiles" else "Perfis de Imagem Global", selectedProfile, theme, { expandedProfile = true; playClick() }) {
             DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
                 profiles.forEach { profile -> DropdownMenuItem(text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { selectedProfile = profile; expandedProfile = false; playClick() }) }
             }
         }
-        ConsoleCard("Ajustes Manuais", "Saturação e Temperatura", theme, playClick) {
+        ConsoleCard(if (isEn) "Manual Adjustments" else "Ajustes Manuais", if (isEn) "Saturation & Temperature" else "Saturação e Temperatura", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("Saturação: ${"%.1f".format(satValue)}", color = theme.text, fontFamily = theme.fontFamily)
+                Text((if (isEn) "Saturation: " else "Saturação: ") + "${"%.1f".format(satValue)}", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(value = satValue, onValueChange = { satValue = it }, valueRange = 0.0f..2.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Temperatura: ${tempValue.toInt()}K", color = theme.text, fontFamily = theme.fontFamily)
+                Text((if (isEn) "Temperature: " else "Temperatura: ") + "${tempValue.toInt()}K", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(value = tempValue, onValueChange = { tempValue = it }, valueRange = 4000f..9000f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
@@ -527,16 +523,16 @@ fun DisplayPanel(theme: ConsoleTheme, playClick: () -> Unit) {
 }
 
 @Composable
-fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, playClick: () -> Unit) {
+fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("Mapeamento e Atalhos", theme)
-        ConsoleCard("Botões de Sistema", "Comportamento geral", theme, playClick) {
+        ConsoleSectionHeader(if (isEn) "Mapping & Shortcuts" else "Mapeamento e Atalhos", theme)
+        ConsoleCard(if (isEn) "System Buttons" else "Botões de Sistema", if (isEn) "General behavior" else "Comportamento geral", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Toque Único no Home", color = theme.text, fontFamily = theme.fontFamily)
+                Text(if (isEn) "Single Press Home" else "Toque Único no Home", color = theme.text, fontFamily = theme.fontFamily)
                 ConsoleToggle(checked = uiState.singlePressHomeEnabled, theme = theme, onCheckedChange = { viewModel.updateSinglePressHomePreference(it); playClick() })
             }
         }
-        ConsoleCard("Botões Traseiros (Macro)", "Mapear M1 e M2", theme, playClick) {
+        ConsoleCard(if (isEn) "Back Buttons (Macro)" else "Botões Traseiros (Macro)", if (isEn) "Map M1 & M2" else "Mapear M1 e M2", theme, playClick) {
             TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m1Button, description = R.string.remapButtonDescription) { playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M1_VALUE) }
             TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m2Button, description = R.string.remapButtonDescription) { playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M2_VALUE) }
         }
@@ -545,107 +541,104 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
 
 @Composable
 fun SystemPanel(
-    theme: ConsoleTheme, currentThemeIndex: Int, currentLanguage: String, amoledBlack: Boolean,
+    theme: ConsoleTheme, currentThemeIndex: Int, currentLanguage: String, amoledBlack: Boolean, isEn: Boolean,
     bgmEnabled: Boolean, bgmVolume: Float, sfxEnabled: Boolean, sfxVolume: Float,
     liveWallpaperType: String, blurEnabled: Boolean, blurIntensity: Float, wallpaperOpacity: Float, selectedWallpaperName: String,
     playClick: () -> Unit, onThemeChange: (Int) -> Unit, onLanguageChange: (String) -> Unit, onAmoledToggle: (Boolean) -> Unit,
     onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit, onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit,
     onReplayBoot: () -> Unit, onLiveWallpaperTypeChange: (String) -> Unit, onBlurToggle: (Boolean) -> Unit,
     onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit,
-    onPresetStaticSelected: (Int, String) -> Unit,
-    onPresetVideoSelected: () -> Unit,
-    onCustomUriSelected: (Uri, String) -> Unit
+    onPresetStaticSelected: (Int, String) -> Unit, onPresetVideoSelected: () -> Unit, onCustomUriSelected: (Uri, String) -> Unit
 ) {
     var expandedLang by remember { mutableStateOf(false) }
     var expandedTheme by remember { mutableStateOf(false) }
     var expandedWallType by remember { mutableStateOf(false) }
-    val context = LocalContext.current
 
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { onCustomUriSelected(it, "Imagem Personalizada") }
+        uri?.let { onCustomUriSelected(it, if (isEn) "Custom Image" else "Imagem Personalizada") }
     }
 
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { onCustomUriSelected(it, "Vídeo Personalizado (.MP4)") }
+        uri?.let { onCustomUriSelected(it, if (isEn) "Custom Video (.MP4)" else "Vídeo Personalizado (.MP4)") }
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader("Idioma e Região", theme)
-        ConsoleCard("Idioma do Sistema", currentLanguage, theme, { expandedLang = true; playClick() }) {
+        ConsoleSectionHeader(if (isEn) "Language & Region" else "Idioma e Região", theme)
+        ConsoleCard(if (isEn) "System Language" else "Idioma do Sistema", currentLanguage, theme, { expandedLang = true; playClick() }) {
             DropdownMenu(expanded = expandedLang, onDismissRequest = { expandedLang = false }, modifier = Modifier.background(theme.surface)) {
                 listOf("Português (PT-BR)", "English (US)").forEach { lang ->
                     DropdownMenuItem(text = { Text(lang, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { onLanguageChange(lang); expandedLang = false; playClick() })
                 }
             }
         }
-        ConsoleSectionHeader("Personalização UI", theme)
-        ConsoleCard("Tema do Console", AvailableThemes[currentThemeIndex].name, theme, { expandedTheme = true; playClick() }) {
+        ConsoleSectionHeader(if (isEn) "UI Customization" else "Personalização UI", theme)
+        ConsoleCard(if (isEn) "Console Theme" else "Tema do Console", AvailableThemes[currentThemeIndex].name, theme, { expandedTheme = true; playClick() }) {
             DropdownMenu(expanded = expandedTheme, onDismissRequest = { expandedTheme = false }, modifier = Modifier.background(theme.surface)) {
                 AvailableThemes.forEachIndexed { index, consoleTheme ->
                     DropdownMenuItem(text = { Text(consoleTheme.name, color = if (currentThemeIndex == index) theme.primary else theme.text, fontFamily = theme.fontFamily) }, onClick = { onThemeChange(index); expandedTheme = false; playClick() })
                 }
             }
         }
-        ConsoleCard("Preto AMOLED", "Fundo escuro absoluto (Adaptativo)", theme, { onAmoledToggle(!amoledBlack); playClick() }) {
+        ConsoleCard(if (isEn) "AMOLED Black" else "Preto AMOLED", if (isEn) "Absolute dark background" else "Fundo escuro absoluto (Adaptativo)", theme, { onAmoledToggle(!amoledBlack); playClick() }) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Forçar Preto AMOLED", color = theme.text, fontFamily = theme.fontFamily)
+                Text(if (isEn) "Force AMOLED Black" else "Forçar Preto AMOLED", color = theme.text, fontFamily = theme.fontFamily)
                 ConsoleToggle(checked = amoledBlack, theme = theme, onCheckedChange = { onAmoledToggle(it); playClick() })
             }
         }
-        ConsoleSectionHeader("Mixer de Áudio", theme)
-        ConsoleCard("Música de Fundo (BGM)", "Volume: ${(bgmVolume * 100).toInt()}%", theme, playClick) {
+        ConsoleSectionHeader(if (isEn) "Audio Mixer" else "Mixer de Áudio", theme)
+        ConsoleCard(if (isEn) "Background Music (BGM)" else "Música de Fundo (BGM)", "Volume: ${(bgmVolume * 100).toInt()}%", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Habilitar BGM", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Enable BGM" else "Habilitar BGM", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = bgmEnabled, theme = theme, onCheckedChange = { onBgmToggle(it); playClick() })
                 }
                 Slider(value = bgmVolume, onValueChange = { onBgmVolume(it) }, enabled = bgmEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-        ConsoleCard("Efeitos Sonoros (SFX)", "Volume: ${(sfxVolume * 100).toInt()}%", theme, playClick) {
+        ConsoleCard(if (isEn) "Sound Effects (SFX)" else "Efeitos Sonoros (SFX)", "Volume: ${(sfxVolume * 100).toInt()}%", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Habilitar SFX", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Enable SFX" else "Habilitar SFX", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = sfxEnabled, theme = theme, onCheckedChange = { onSfxToggle(it); playClick() })
                 }
                 Slider(value = sfxVolume, onValueChange = { onSfxVolume(it) }, enabled = sfxEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-        ConsoleSectionHeader("Live Wallpaper & Fundo", theme)
-        ConsoleCard("Tipo de Wallpaper", liveWallpaperType, theme, { expandedWallType = true; playClick() }) {
+        ConsoleSectionHeader(if (isEn) "Live Wallpaper & Background" else "Live Wallpaper & Fundo", theme)
+        ConsoleCard(if (isEn) "Wallpaper Type" else "Tipo de Wallpaper", liveWallpaperType, theme, { expandedWallType = true; playClick() }) {
             DropdownMenu(expanded = expandedWallType, onDismissRequest = { expandedWallType = false }, modifier = Modifier.background(theme.surface)) {
                 listOf("Static", "Live (MP4)").forEach { type ->
                     DropdownMenuItem(text = { Text(type, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { onLiveWallpaperTypeChange(type); expandedWallType = false; playClick() })
                 }
             }
         }
-        ConsoleCard("Ajustes de Blur e Opacidade", "Controlar visibilidade do fundo", theme, playClick) {
+        ConsoleCard(if (isEn) "Blur & Opacity Adjustments" else "Ajustes de Blur e Opacidade", if (isEn) "Control background visibility" else "Controlar visibilidade do fundo", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Habilitar Efeito de Desfoque", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Enable Blur Effect" else "Habilitar Efeito de Desfoque", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = blurEnabled, theme = theme, onCheckedChange = { onBlurToggle(it); playClick() })
                 }
-                Text("Intensidade do Desfoque", color = theme.text.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                Text(if (isEn) "Blur Intensity" else "Intensidade do Desfoque", color = theme.text.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                 Slider(value = blurIntensity, onValueChange = { onBlurIntensityChange(it) }, enabled = blurEnabled, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                Text("Opacidade do Wallpaper", color = theme.text.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                Text(if (isEn) "Wallpaper Opacity" else "Opacidade do Wallpaper", color = theme.text.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                 Slider(value = wallpaperOpacity, onValueChange = { onWallpaperOpacityChange(it) }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
-        ConsoleCard("Seleção de Wallpaper", selectedWallpaperName, theme, playClick) {
+        ConsoleCard(if (isEn) "Wallpaper Selection" else "Seleção de Wallpaper", selectedWallpaperName, theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (liveWallpaperType == "Static") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
-                            onPresetStaticSelected(R.drawable.static_wallpaper_1, "static_wallpaper_1.png")
+                            onPresetStaticSelected(R.drawable.static_wallpaper_1, if (isEn) "Preset 1" else "Predefinição 1")
                             playClick()
                         }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                            Text("Wallpaper 1", fontFamily = theme.fontFamily, color = Color.White)
+                            Text(if (isEn) "Wallpaper 1" else "Wallpaper 1", fontFamily = theme.fontFamily, color = Color.White)
                         }
                         Button(onClick = {
-                            onPresetStaticSelected(R.drawable.static_wallpaper_2, "static_wallpaper_2.png")
+                            onPresetStaticSelected(R.drawable.static_wallpaper_2, if (isEn) "Preset 2" else "Predefinição 2")
                             playClick()
                         }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                            Text("Wallpaper 2", fontFamily = theme.fontFamily, color = Color.White)
+                            Text(if (isEn) "Wallpaper 2" else "Wallpaper 2", fontFamily = theme.fontFamily, color = Color.White)
                         }
                     }
                 } else {
@@ -653,7 +646,7 @@ fun SystemPanel(
                         onPresetVideoSelected()
                         playClick()
                     }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                        Text("Live Wallpaper Padrão", fontFamily = theme.fontFamily, color = Color.White)
+                        Text(if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão", fontFamily = theme.fontFamily, color = Color.White)
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -661,21 +654,21 @@ fun SystemPanel(
                     if (liveWallpaperType == "Static") imagePickerLauncher.launch("image/*") else videoPickerLauncher.launch("video/*")
                     playClick()
                 }, colors = ButtonDefaults.buttonColors(containerColor = theme.surface)) {
-                    Text("Escolher do Dispositivo...", fontFamily = theme.fontFamily, color = theme.text)
+                    Text(if (isEn) "Choose from Device..." else "Escolher do Dispositivo...", fontFamily = theme.fontFamily, color = theme.text)
                 }
             }
         }
-        ConsoleSectionHeader("Sobre o Sistema", theme)
+        ConsoleSectionHeader(if (isEn) "About System" else "Sobre o Sistema", theme)
         ConsoleCard("Odin Hub", "Versão 0.5", theme, playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text("Rever Tela de Boas-Vindas", color = theme.primary, fontFamily = theme.fontFamily, modifier = Modifier.clickable { onReplayBoot() })
+                Text(if (isEn) "Replay Welcome Screen" else "Rever Tela de Boas-Vindas", color = theme.primary, fontFamily = theme.fontFamily, modifier = Modifier.clickable { onReplayBoot() })
             }
         }
     }
 }
 
 // ==========================================
-// COMPONENTES CUSTOMIZADOS (Estilo Glassmorphism)
+// COMPONENTES CUSTOMIZADOS
 // ==========================================
 @Composable
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {

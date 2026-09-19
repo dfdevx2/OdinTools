@@ -37,6 +37,8 @@ fun WelcomeScreen(
     var expandedLang by remember { mutableStateOf(false) }
     var expandedTheme by remember { mutableStateOf(false) }
 
+    val isEn = currentLanguage == "English (US)"
+
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center
@@ -53,7 +55,7 @@ fun WelcomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "BEM-VINDO AO ODIN HUB",
+                text = if (isEn) "WELCOME TO ODIN HUB" else "BEM-VINDO AO ODIN HUB",
                 fontSize = 22.sp,
                 fontFamily = theme.fontFamily,
                 fontWeight = FontWeight.Black,
@@ -62,7 +64,7 @@ fun WelcomeScreen(
             )
 
             Text(
-                text = "Configure suas preferências iniciais para começar",
+                text = if (isEn) "Set up your initial preferences to start" else "Configure suas preferências iniciais para começar",
                 fontSize = 13.sp,
                 fontFamily = theme.fontFamily,
                 color = theme.text.copy(alpha = 0.7f)
@@ -73,7 +75,7 @@ fun WelcomeScreen(
             when (step) {
                 0 -> {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Text("Idioma do Sistema", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(if (isEn) "System Language" else "Idioma do Sistema", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Box {
                             Button(onClick = { expandedLang = true }, colors = ButtonDefaults.buttonColors(containerColor = theme.background), modifier = Modifier.fillMaxWidth()) {
                                 Text(currentLanguage, color = theme.text, fontFamily = theme.fontFamily)
@@ -86,7 +88,7 @@ fun WelcomeScreen(
                         }
 
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Tema Visual", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(if (isEn) "Visual Theme" else "Tema Visual", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Box {
                             Button(onClick = { expandedTheme = true }, colors = ButtonDefaults.buttonColors(containerColor = theme.background), modifier = Modifier.fillMaxWidth()) {
                                 Text(AvailableThemes[currentThemeIndex].name, color = theme.text, fontFamily = theme.fontFamily)
@@ -102,14 +104,14 @@ fun WelcomeScreen(
                 1 -> {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Música de Fundo (BGM)", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(if (isEn) "Background Music (BGM)" else "Música de Fundo (BGM)", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             Switch(checked = bgmEnabled, onCheckedChange = onBgmToggle)
                         }
                         Slider(value = bgmVolume, onValueChange = onBgmVolume, enabled = bgmEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
 
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Efeitos Sonoros (SFX)", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(if (isEn) "Sound Effects (SFX)" else "Efeitos Sonoros (SFX)", color = theme.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             Switch(checked = sfxEnabled, onCheckedChange = onSfxToggle)
                         }
                         Slider(value = sfxVolume, onValueChange = onSfxVolume, enabled = sfxEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
@@ -122,7 +124,7 @@ fun WelcomeScreen(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 if (step > 0) {
                     Button(onClick = { step-- }, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) {
-                        Text("Voltar", color = theme.text, fontFamily = theme.fontFamily)
+                        Text(if (isEn) "Back" else "Voltar", color = theme.text, fontFamily = theme.fontFamily)
                     }
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))
@@ -134,7 +136,7 @@ fun WelcomeScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
                 ) {
-                    Text(if (step < 1) "Avançar" else "INICIAR BOOT", color = Color.White, fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
+                    Text(if (step < 1) (if (isEn) "Next" else "Avançar") else (if (isEn) "START BOOT" else "INICIAR BOOT"), color = Color.White, fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
                 }
             }
         }
