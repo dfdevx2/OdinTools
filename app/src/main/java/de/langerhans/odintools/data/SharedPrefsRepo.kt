@@ -38,6 +38,15 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getInt(KEY_OVERLAY_HANDLE_WIDTH, 22)
         set(value) = prefs.edit().putInt(KEY_OVERLAY_HANDLE_WIDTH, value).apply()
 
+    // --- NOVAS OPÇÕES DO FUNDO DO OVERLAY ---
+    var overlayPanelOpacity: Float
+        get() = prefs.getFloat(KEY_OVERLAY_PANEL_OPACITY, 0.95f)
+        set(value) = prefs.edit().putFloat(KEY_OVERLAY_PANEL_OPACITY, value).apply()
+
+    var overlayPanelBlur: Float
+        get() = prefs.getFloat(KEY_OVERLAY_PANEL_BLUR, 0.0f)
+        set(value) = prefs.edit().putFloat(KEY_OVERLAY_PANEL_BLUR, value).apply()
+
     var disabledControllerStyle: String?
         get() = prefs.getString(KEY_DISABLED_CONTROLLER_STYLE, null)
         set(value) = prefs.edit().putString(KEY_DISABLED_CONTROLLER_STYLE, value).apply()
@@ -110,7 +119,6 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getString(KEY_CURRENT_FG_APP, "global") ?: "global"
         set(value) = prefs.edit().putString(KEY_CURRENT_FG_APP, value).apply()
 
-    // --- PER-APP OVERRIDES LOGIC ---
     fun savePerAppConfig(packageName: String, tdp: Float, perfClock: Float, primeClock: Float, gpuClock: Float, reshade: String, sgsr: Boolean, sgsrMode: String, lsfg: Boolean) {
         prefs.edit()
             .putFloat("override_${packageName}_tdp", tdp)
@@ -130,7 +138,6 @@ class SharedPrefsRepo @Inject constructor(
     fun getPerAppGpuClock(packageName: String, default: Float): Float = prefs.getFloat("override_${packageName}_gpu", default)
     fun getPerAppReshade(packageName: String, default: String): String = prefs.getString("override_${packageName}_reshade", default) ?: default
 
-    // --- CUSTOM PROFILES LOGIC ---
     fun saveCustomProfile(name: String, type: String, val1: Float, val2: Float, val3: Float, val4: Float) {
         prefs.edit()
             .putString("custom_profile_${name}_type", type)
@@ -163,19 +170,15 @@ class SharedPrefsRepo @Inject constructor(
         private const val KEY_OVERLAY_HANDLE_OPACITY = "overlay_handle_opacity"
         private const val KEY_OVERLAY_HANDLE_WIDTH = "overlay_handle_width"
         private const val KEY_OVERLAY_HANDLE_POS_Y = "overlay_handle_pos_y"
+        private const val KEY_OVERLAY_PANEL_OPACITY = "overlay_panel_opacity"
+        private const val KEY_OVERLAY_PANEL_BLUR = "overlay_panel_blur"
         private const val KEY_DISABLED_CONTROLLER_STYLE = "disabled_controller_style"
         private const val KEY_DISABLED_L2R2_STYLE = "disabled_l2r2_style"
         private const val KEY_SATURATION_OVERRIDE = "saturation_override"
         private const val KEY_TEMPERATURE_OVERRIDE = "temperature_override"
-        private const val KEY_VIBRATION_STRENGTH = "vibration_strength"
         private const val KEY_APP_OVERRIDES_ENABLED = "app_overrides_enabled"
-        private const val KEY_OVERRIDE_DELAY = "override_delay"
-        private const val KEY_CHARGE_LIMIT_ENABLED = "charge_limit_enabled"
-        private const val KEY_MIN_BATTERY_LEVEL = "min_battery_level"
-        private const val KEY_MAX_BATTERY_LEVEL = "max_battery_level"
-        private const val KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED = "video_output_override_enabled"
-        private const val KEY_VIDEO_OUTPUT_CONTROLLER_STYLE = "video_output_controller_style"
-        private const val KEY_VIDEO_OUTPUT_L2R2_STYLE = "video_output_l2r2_style"
+        private const val KEY_USE_ROOT_TARGET = "use_root_target"
+        private const val KEY_FAN_MODE = "fan_mode"
         private const val KEY_GLOBAL_LSFG_ENABLED = "global_lsfg_enabled"
         private const val KEY_LSFG_MULTIPLIER = "lsfg_multiplier"
         private const val KEY_LSFG_PACING = "lsfg_pacing"
@@ -187,7 +190,5 @@ class SharedPrefsRepo @Inject constructor(
         private const val KEY_RESHADE_PROFILE = "reshade_profile"
         private const val KEY_FPS_OVERLAY = "fps_overlay"
         private const val KEY_CURRENT_FG_APP = "current_foreground_app"
-        private const val KEY_USE_ROOT_TARGET = "use_root_target"
-        private const val KEY_FAN_MODE = "fan_mode"
     }
 }
