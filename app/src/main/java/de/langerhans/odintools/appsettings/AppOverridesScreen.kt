@@ -23,6 +23,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import de.langerhans.odintools.models.ClusterClockPresets
+import de.langerhans.odintools.models.CombinedClockProfiles
+import de.langerhans.odintools.models.FanMode
 
 @Composable
 fun AppOverridesScreen(
@@ -32,18 +37,12 @@ fun AppOverridesScreen(
     val uiState by viewModel.uiState.collectAsState()
     val haptic = LocalHapticFeedback.current
 
-    var expandedTdp by remember { mutableStateOf(false) }
-    var expandedClock by remember { mutableStateOf(false) }
-    var expandedFan by remember { mutableStateOf(false) }
     var expandedLsfgMult by remember { mutableStateOf(false) }
     var expandedSgsrMode by remember { mutableStateOf(false) }
     var expandedReshade by remember { mutableStateOf(false) }
 
-    val fanProfiles = listOf("Nenhum", "Smart", "Quiet", "Sport")
     val sgsrModes = listOf("Quality", "Balanced", "Performance", "Ultra")
-
-    val isClockLocked = uiState.tdpProfile != "Nenhum"
-    val isTdpLocked = uiState.clockProfile != "Nenhum"
+    val isTdpMode = uiState.limitMode == "TDP"
 
     val accentColor = Color(0xFF1976D2)
 
@@ -71,30 +70,104 @@ fun AppOverridesScreen(
             item { Text("⚡ PERFORMANCE & HARDWARE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 1.sp) }
 
             item {
-                AppOverrideCard(title = "Perfil de TDP", subtitle = uiState.tdpProfile, enabled = !isTdpLocked, onClick = { if (!isTdpLocked) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); expandedTdp = true } }) {
-                    DropdownMenu(expanded = expandedTdp, onDismissRequest = { expandedTdp = false }, modifier = Modifier.background(Color(0xFF1A1D24))) {
-                        uiState.availableTdpProfiles.forEach { profile ->
-                            DropdownMenuItem(text = { Text(profile, color = Color.White) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updatePerformance(profile, uiState.clockProfile, uiState.fanProfile); expandedTdp = false })
+                // TDP e Clock são MUTUAMENTE EXCLUSIVOS -- mesmo modelo do overlay e do ecrã de
+                // Settings global. Este jogo usa OU um limite de TDP OU clocks manuais, nunca os
+                // dois; o toggle abaixo troca `limitMode`, tal como no overlay.
+                AppOverrideCard(title = "Modo de Limite", subtitle = if (isTdpMode) "TDP" else "Clocks Manuais", enabled = true, onClick = null) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isTdpMode) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("TDP") }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            Text("TDP", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (!isTdpMode) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("CLOCK") }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            Text("Clocks", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            if (isTdpMode) {
+                item {
+                    AppOverrideCard(title = "Limite de TDP", subtitle = "${uiState.tdpWatts.toInt()} W", enabled = true, onClick = null) {
+                        Column {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                listOf("Power Save" to 5f, "Balanced" to 10f, "Triple A" to 15f, "Stock" to 25f).forEach { (label, watts) ->
+                                    val isSel = uiState.tdpWatts == watts
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateTdp(watts) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text(label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Slider(value = uiState.tdpWatts, onValueChange = { viewModel.updateTdp(it) }, valueRange = 5f..25f, colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor))
+                        }
+                    }
+                }
+            } else {
+                item {
+                    // Presets discretos por cluster, ao estilo ClusterTune -- os MESMOS usados no
+                    // overlay e no ecrã de Settings global (ver ClockPresets.kt). A GPU é sempre
+                    // um controlo à parte: os perfis combinados abaixo nunca lhe tocam.
+                    AppOverrideCard(title = "Clocks por Cluster", subtitle = "Perf ${uiState.perfClockMHz.toInt()} MHz | Prime ${uiState.primeClockMHz.toInt()} MHz | GPU ${uiState.gpuClockMHz.toInt()} MHz", enabled = true, onClick = null) {
+                        Column {
+                            Text("Perfis combinados (Perf + Prime -- GPU é independente)", color = Color.Gray, fontSize = 10.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                CombinedClockProfiles.all.forEach { prof ->
+                                    val isSel = uiState.perfClockMHz == prof.perfClockMHz && uiState.primeClockMHz == prof.primeClockMHz
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateClocks(prof.perfClockMHz, prof.primeClockMHz, uiState.gpuClockMHz) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text(prof.label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Cluster Perf (Cluster 0): ${uiState.perfClockMHz.toInt()} MHz", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                ClusterClockPresets.perfPresets.forEach { preset ->
+                                    val isSel = uiState.perfClockMHz == preset.clockMHz
+                                    Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateClocks(preset.clockMHz, uiState.primeClockMHz, uiState.gpuClockMHz) }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text(preset.label, color = Color.White, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Cluster Prime (Cluster 1): ${uiState.primeClockMHz.toInt()} MHz", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                ClusterClockPresets.primePresets.forEach { preset ->
+                                    val isSel = uiState.primeClockMHz == preset.clockMHz
+                                    Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateClocks(uiState.perfClockMHz, preset.clockMHz, uiState.gpuClockMHz) }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text(preset.label, color = Color.White, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Adreno GPU (independente): ${uiState.gpuClockMHz.toInt()} MHz", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                ClusterClockPresets.gpuPresets.forEach { preset ->
+                                    val isSel = uiState.gpuClockMHz == preset.clockMHz
+                                    Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateClocks(uiState.perfClockMHz, uiState.primeClockMHz, preset.clockMHz) }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text(preset.label, color = Color.White, fontSize = 10.sp)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
             item {
-                AppOverrideCard(title = "Perfil de Clocks (Underclock)", subtitle = uiState.clockProfile, enabled = !isClockLocked, onClick = { if (!isClockLocked) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); expandedClock = true } }) {
-                    DropdownMenu(expanded = expandedClock, onDismissRequest = { expandedClock = false }, modifier = Modifier.background(Color(0xFF1A1D24))) {
-                        uiState.availableClockProfiles.forEach { profile ->
-                            DropdownMenuItem(text = { Text(profile, color = Color.White) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updatePerformance(uiState.tdpProfile, profile, uiState.fanProfile); expandedClock = false })
-                        }
-                    }
-                }
-            }
-
-            item {
-                AppOverrideCard(title = "Resfriamento (Ventoinha)", subtitle = uiState.fanProfile, enabled = true, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); expandedFan = true }) {
-                    DropdownMenu(expanded = expandedFan, onDismissRequest = { expandedFan = false }, modifier = Modifier.background(Color(0xFF1A1D24))) {
-                        fanProfiles.forEach { profile ->
-                            DropdownMenuItem(text = { Text(profile, color = Color.White) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updatePerformance(uiState.tdpProfile, uiState.clockProfile, profile); expandedFan = false })
+                AppOverrideCard(title = "Resfriamento (Ventoinha)", subtitle = FanMode.fromSettingsValue(uiState.fanSettingsValue).shortLabel, enabled = true, onClick = null) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        (FanMode.selectable + FanMode.Stock).forEach { mode ->
+                            val isSel = uiState.fanSettingsValue == mode.settingsValue
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) accentColor else Color.White.copy(alpha = 0.08f)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateFanMode(mode.settingsValue) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(mode.shortLabel, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

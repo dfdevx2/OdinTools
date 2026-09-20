@@ -57,15 +57,42 @@ class SoundManager @Inject constructor(
         bgmPlayer?.let { runCatching { if (it.isPlaying) it.pause() } }
     }
 
+    // BUG REPORTADO: "o efeito sonoro de toque/seleção não está funcionando". Duas causas reais
+    // encontradas aqui, ambas silenciosas (nunca lançavam exceção, por isso pareciam só "não
+    // fazer nada"):
+    //
+    // 1. `USAGE_ASSISTANCE_SONIFICATION` associa este SoundPool ao stream de "sons de sistema"
+    //    do Android, que é uma stream de VOLUME SEPARADA da stream de media (a mesma que o BGM
+    //    usa, e que já sabemos que funciona). Em muitas ROMs -- incluindo skins de handhelds --
+    //    essa stream vem silenciada por omissão ou depende de um interruptor de "sons de toque"
+    //    nas Definições do sistema, fora do controlo desta app. Mudado para `USAGE_MEDIA`, que
+    //    partilha a mesma stream do BGM e é controlado só pelo volume da própria app.
+    // 2. `SoundPool.load()` é assíncrono -- devolve um ID imediatamente, mas o som só fica
+    //    realmente pronto a tocar quando o `OnLoadCompleteListener` disparar. Tocar antes disso
+    //    (ex: logo a seguir ao arranque, ou se o load simplesmente falhar) não faz nada e não dá
+    //    erro nenhum. Passámos a rastrear quais IDs já carregaram com sucesso, e a registar um
+    //    aviso (em vez de tentar tocar às cegas) quando um som ainda não está pronto.
     private val soundPool: SoundPool = SoundPool.Builder()
         .setMaxStreams(4)
         .setAudioAttributes(
             AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
         )
         .build()
+
+    private val loadedSoundIds = mutableSetOf<Int>()
+
+    init {
+        soundPool.setOnLoadCompleteListener { _, sampleId, status ->
+            if (status == 0) {
+                loadedSoundIds.add(sampleId)
+            } else {
+                Log.w(TAG, "Falha ao carregar efeito sonoro (sampleId=$sampleId, status=$status)")
+            }
+        }
+    }
 
     private val sfxSelectId = soundPool.load(context, R.raw.sfx_select, 1)
     private val sfxNavId = soundPool.load(context, R.raw.sfx_nav, 1)
@@ -136,6 +163,13 @@ class SoundManager @Inject constructor(
 
     private fun playSfx(soundId: Int) {
         if (!prefs.sfxEnabled) return
+        if (soundId !in loadedSoundIds) {
+            // Ainda a carregar (raro, só nos primeiros instantes depois do arranque) ou falhou a
+            // carregar -- tocar aqui não faz nada, mas pelo menos fica registado o porquê, em vez
+            // de o som "desaparecer" sem explicação nenhuma.
+            Log.w(TAG, "playSfx: soundId=$soundId ainda não estava carregado, ignorado")
+            return
+        }
         val volume = prefs.sfxVolume
         runCatching { soundPool.play(soundId, volume, volume, 1, 0, 1.0f) }
             .onFailure { Log.w(TAG, "Falha ao reproduzir efeito sonoro", it) }
