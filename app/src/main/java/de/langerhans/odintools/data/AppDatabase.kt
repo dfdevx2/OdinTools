@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [AppOverrideEntity::class],
-    version = 3, // Atualizado para a nova arquitetura do Odin Hub (TDP/Clocks)
+    version = 4, // Subindo para v4 para acomodar as colunas de Display, SGSR e LSFG
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

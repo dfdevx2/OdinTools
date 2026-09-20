@@ -644,7 +644,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             selectedClockProfileName = profile
 
-                            // Os novos perfis ajustados: Mantendo GPU sempre em 1100 MHz
                             if (profile.contains("Power Save")) {
                                 viewModel.updateManualClocks(1735f, 2246f, 1100f)
                             } else if (profile.contains("Balanced")) {
@@ -714,15 +713,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 )
             }
         }
-
-        ConsoleSectionHeader(if (isEn) "Game Rules & Per-App Overrides" else "Regras por Jogo e Aplicativo", theme)
-        ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific TDP & clock rules for emulators" else "Vincule perfis de TDP, Clocks e Fan a emuladores específicos", theme, playClick = playClick) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isEn) "Enable Overrides" else "Habilitar Overrides por App", color = theme.text, fontFamily = theme.fontFamily)
-                ConsoleToggle(checked = uiState.appOverridesEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.appOverridesEnabled(it); playClick() })
-            }
-            TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.appOverrides, description = R.string.appOverridesDescription) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); navigateToOverrideList() }
-        }
     }
 
     if (showClockSaveDialog) {
@@ -766,14 +756,97 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 @Composable
 fun DisplayPanel(theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
+
+    // States ReShade & Colors
     var satValue by rememberSaveable { mutableFloatStateOf(1.0f) }
     var tempValue by rememberSaveable { mutableFloatStateOf(6500f) }
     var expandedProfile by rememberSaveable { mutableStateOf(false) }
     val profiles = if (isEn) listOf("Native", "Vibrant", "Cinema", "Retro") else listOf("Nativo", "Vibrante", "Cinema", "Retrô")
     var selectedProfile by rememberSaveable { mutableStateOf(profiles[0]) }
 
+    // States Lossless Scaling (LSFG)
+    var lsfgEnabled by rememberSaveable { mutableStateOf(false) }
+    var lsfgMultiplier by rememberSaveable { mutableStateOf("2x") }
+    var expandedLsfgMult by rememberSaveable { mutableStateOf(false) }
+    val lsfgMultOptions = listOf("2x", "3x", "4x")
+    var lsfgFramePacing by rememberSaveable { mutableStateOf(true) }
+    var lsfgQuality by rememberSaveable { mutableFloatStateOf(1.0f) }
+
+    // States Snapdragon Super Resolution (SGSR)
+    var sgsrEnabled by rememberSaveable { mutableStateOf(false) }
+    var sgsrMode by rememberSaveable { mutableStateOf("Quality") }
+    var expandedSgsrMode by rememberSaveable { mutableStateOf(false) }
+    val sgsrModes = listOf("Quality", "Balanced", "Performance", "Ultra Performance")
+    var sgsrSharpness by rememberSaveable { mutableFloatStateOf(0.5f) }
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader(if (isEn) "Screen Calibration" else "Calibração de Tela", theme)
+
+        ConsoleSectionHeader(if (isEn) "Upscaling & Frame Generation" else "Upscaling e Geração de Quadros", theme)
+
+        ConsoleCard(
+            title = "Lossless Scaling (Frame Gen)",
+            subtitle = if (isEn) "Injects interpolated frames to multiply FPS" else "Injeta quadros interpolados para multiplicar o FPS",
+            theme = theme,
+            playClick = null // Mantém nulo para o D-Pad fluir nos sliders internos
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isEn) "Enable LSFG" else "Ativar LSFG", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = lsfgEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lsfgEnabled = it; playClick() })
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isEn) "Multiplier" else "Multiplicador de Quadros", color = theme.text, fontFamily = theme.fontFamily)
+                    Box {
+                        Text(lsfgMultiplier, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (lsfgEnabled) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); expandedLsfgMult = true; playClick() } }.alpha(if(lsfgEnabled) 1f else 0.5f))
+                        DropdownMenu(expanded = expandedLsfgMult && lsfgEnabled, onDismissRequest = { expandedLsfgMult = false }, modifier = Modifier.background(theme.surface)) {
+                            lsfgMultOptions.forEach { mult ->
+                                DropdownMenuItem(text = { Text(mult, color = theme.text) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lsfgMultiplier = mult; expandedLsfgMult = false; playClick() })
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isEn) "Frame Pacing" else "Sincronia de Quadros (Pacing)", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = lsfgFramePacing, theme = theme, onCheckedChange = { if(lsfgEnabled) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lsfgFramePacing = it; playClick() } })
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(if (isEn) "Generation Quality: ${(lsfgQuality * 100).toInt()}%" else "Qualidade de Geração: ${(lsfgQuality * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(value = lsfgQuality, onValueChange = { lsfgQuality = it }, valueRange = 0.5f..1.0f, enabled = lsfgEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleCard(
+            title = "Snapdragon Super Resolution (SGSR)",
+            subtitle = if (isEn) "Spatial upscaling for performance boost" else "Upscaling espacial para ganho de performance",
+            theme = theme,
+            playClick = null
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isEn) "Enable SGSR" else "Ativar SGSR", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = sgsrEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); sgsrEnabled = it; playClick() })
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isEn) "Upscaling Mode" else "Modo de Upscaling", color = theme.text, fontFamily = theme.fontFamily)
+                    Box {
+                        Text(sgsrMode, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (sgsrEnabled) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); expandedSgsrMode = true; playClick() } }.alpha(if(sgsrEnabled) 1f else 0.5f))
+                        DropdownMenu(expanded = expandedSgsrMode && sgsrEnabled, onDismissRequest = { expandedSgsrMode = false }, modifier = Modifier.background(theme.surface)) {
+                            sgsrModes.forEach { mode ->
+                                DropdownMenuItem(text = { Text(mode, color = theme.text) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); sgsrMode = mode; expandedSgsrMode = false; playClick() })
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(if (isEn) "Sharpness: ${(sgsrSharpness * 100).toInt()}%" else "Nitidez (Sharpness): ${(sgsrSharpness * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily)
+                Slider(value = sgsrSharpness, onValueChange = { sgsrSharpness = it }, valueRange = 0.0f..1.0f, enabled = sgsrEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleSectionHeader(if (isEn) "ReShade & Color Calibration" else "ReShade e Calibração de Tela", theme)
         ConsoleCard(if (isEn) "Global Image Profiles" else "Perfis de Imagem Global", selectedProfile, theme, playClick = { expandedProfile = true; playClick() }) {
             DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
                 profiles.forEach { profile -> DropdownMenuItem(text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); selectedProfile = profile; expandedProfile = false; playClick() }) }
