@@ -377,22 +377,19 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 }
             }
         } else {
-            ConsoleCard(if (isEn) "Global Clock Profiles" else "Perfis Globais de Clocks", if (isEn) "Select or create" else "Selecione ou crie um perfil", theme, enabled = isClockMode) {
+            ConsoleCard(if (isEn) "Global Clock Profiles" else "Perfis Globais de Clocks", if (isEn) "Perf/Prime only -- GPU is independent below" else "Só Perf/Prime -- a GPU é independente, mais abaixo", theme, enabled = isClockMode) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    val defaultClocks = listOf("Power Save", "Balanced", "Triple A", "Stock")
+                    // Perfis combinados: SÓ Cluster 0 (Perf) e Cluster 1 (Prime). A GPU nunca é
+                    // tocada por estes botões -- fica sempre no valor que o utilizador escolheu
+                    // manualmente no controlo de GPU, mais abaixo (ver ClockPresets.kt).
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (profName in defaultClocks) {
-                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(theme.surface).clickable {
-                                if(isClockMode) {
-                                    when (profName) {
-                                        "Power Save" -> viewModel.updateManualClocks(1735f, 2246f, 160f)
-                                        "Balanced" -> viewModel.updateManualClocks(2400f, 3000f, 500f)
-                                        "Triple A" -> viewModel.updateManualClocks(3000f, 3800f, 800f)
-                                        "Stock" -> viewModel.updateManualClocks(3530f, 4320f, 1100f)
-                                    }
-                                }
+                        for (prof in de.langerhans.odintools.models.CombinedClockProfiles.all) {
+                            val label = if (isEn) prof.labelEn else prof.label
+                            val isSel = uiState.cpuPerfClock == prof.perfClockMHz && uiState.cpuPrimeClock == prof.primeClockMHz
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable {
+                                if (isClockMode) viewModel.updateManualClocks(prof.perfClockMHz, prof.primeClockMHz, uiState.gpuClock)
                             }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -408,15 +405,53 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("CPU Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                    Slider(value = uiState.cpuPerfClock, onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) }, valueRange = 1735f..3530f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("CPU Prime Cores (2x): ${uiState.cpuPrimeClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                    Slider(value = uiState.cpuPrimeClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) }, valueRange = 2246f..4320f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("Adreno GPU: ${uiState.gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                    Slider(value = uiState.gpuClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) }, valueRange = 160f..1100f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(if (isEn) "Perf Cluster (Cluster 0)" else "Cluster Perf (Cluster 0)", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("${uiState.cpuPerfClock.toInt()} MHz", color = theme.text.copy(alpha = 0.6f), fontSize = 10.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (preset in de.langerhans.odintools.models.ClusterClockPresets.perfPresets) {
+                            val label = if (isEn) preset.labelEn else preset.label
+                            val isSel = uiState.cpuPerfClock == preset.clockMHz
+                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
+                                if (isClockMode) viewModel.updateManualClocks(preset.clockMHz, uiState.cpuPrimeClock, uiState.gpuClock)
+                            }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(label, color = theme.text, fontSize = 10.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(if (isEn) "Prime Cluster (Cluster 1)" else "Cluster Prime (Cluster 1)", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("${uiState.cpuPrimeClock.toInt()} MHz", color = theme.text.copy(alpha = 0.6f), fontSize = 10.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (preset in de.langerhans.odintools.models.ClusterClockPresets.primePresets) {
+                            val label = if (isEn) preset.labelEn else preset.label
+                            val isSel = uiState.cpuPrimeClock == preset.clockMHz
+                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
+                                if (isClockMode) viewModel.updateManualClocks(uiState.cpuPerfClock, preset.clockMHz, uiState.gpuClock)
+                            }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(label, color = theme.text, fontSize = 10.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(if (isEn) "GPU (independent -- not affected by profiles above)" else "GPU (independente -- não é afetada pelos perfis acima)", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("${uiState.gpuClock.toInt()} MHz", color = theme.text.copy(alpha = 0.6f), fontSize = 10.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (preset in de.langerhans.odintools.models.ClusterClockPresets.gpuPresets) {
+                            val label = if (isEn) preset.labelEn else preset.label
+                            val isSel = uiState.gpuClock == preset.clockMHz
+                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
+                                if (isClockMode) viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, preset.clockMHz)
+                            }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(label, color = theme.text, fontSize = 10.sp)
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -621,9 +656,13 @@ fun SystemPanel(
                     })
                 }
                 Spacer(Modifier.height(16.dp))
-                Text("Opacidade do Fundo: ${(uiState.overlayPanelOpacity * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
-                Slider(value = uiState.overlayPanelOpacity, onValueChange = { viewModel.updateOverlayPanelOpacity(it) }, valueRange = 0.1f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                Spacer(Modifier.height(8.dp))
+                // "Opacidade do Fundo" removida daqui de propósito: era um controlo duplicado e
+                // não-funcional em relação ao painel de Settings. A aba "Visuals" do próprio
+                // overlay (QuickAccessContent.kt) já tem o slider real que controla
+                // prefs.overlayPanelOpacity em tempo real durante o jogo -- este aqui só
+                // escrevia a mesma preferência sem qualquer feedback visual imediato, daí
+                // parecer "não fazer nada". A preferência e updateOverlayPanelOpacity() continuam
+                // a existir; só a linha duplicada da UI foi removida.
                 Text("Opacidade do Puxador: ${(uiState.overlayHandleOpacity * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
                 Slider(value = uiState.overlayHandleOpacity, onValueChange = { viewModel.updateHandleOpacity(it) }, valueRange = 0.1f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 Spacer(Modifier.height(8.dp))

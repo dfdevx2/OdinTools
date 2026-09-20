@@ -83,4 +83,10 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
+
+    // ProcessLifecycleOwner: usado pelo SoundManager para saber quando a UI principal (não o
+    // processo inteiro -- o overlay/serviços continuam vivos) vai para segundo plano, e assim
+    // parar a música de fundo mesmo com o overlay ainda ativo (ver bug reportado: "a musiquinha
+    // deveria parar quando a gente sai do aplicativo, mesmo que o overlay esteja ativado").
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 }

@@ -5,6 +5,9 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.SoundPool
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.R
 import de.langerhans.odintools.data.SharedPrefsRepo
@@ -25,8 +28,34 @@ import javax.inject.Singleton
 class SoundManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val prefs: SharedPrefsRepo,
-) {
+) : DefaultLifecycleObserver {
     private var bgmPlayer: MediaPlayer? = null
+
+    // BUG REPORTADO: "a musiquinha deveria parar quando a gente sai do aplicativo, mesmo que o
+    // overlay esteja ativado". Antes desta correção, `startBackgroundMusicIfEnabled()` só era
+    // chamado uma vez em MainViewModel.init e nunca mais parado -- o MediaPlayer continuava em
+    // loop mesmo depois do utilizador sair para outra app ou para dentro de um jogo, porque nada
+    // observava o ciclo de vida da UI principal.
+    //
+    // ProcessLifecycleOwner (e não o Activity.onPause/onStop de uma Activity em particular) é o
+    // sinal certo aqui: ele só passa a STOPPED quando NENHUMA Activity da app está visível, e não
+    // é afetado pelo GamingOverlayService/ForegroundAppWatcherService continuarem a correr em
+    // segundo plano -- exatamente o comportamento pedido ("mesmo que o overlay esteja ativado").
+    init {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+    }
+
+    override fun onStart(owner: LifecycleOwner) {
+        // Volta ao primeiro plano (ex: utilizador reabriu a app). Só retoma se a música estava
+        // ativa nas preferências -- não força o BGM a tocar se o utilizador o tinha desativado.
+        if (prefs.bgmEnabled) startBackgroundMusic()
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        // Nenhuma Activity da app está visível: para o BGM, mas mantém `bgmPlayer` vivo (pause,
+        // não release) para retomar exatamente de onde ficou ao reabrir, sem novo custo de I/O.
+        bgmPlayer?.let { runCatching { if (it.isPlaying) it.pause() } }
+    }
 
     private val soundPool: SoundPool = SoundPool.Builder()
         .setMaxStreams(4)
@@ -54,11 +83,18 @@ class SoundManager @Inject constructor(
     private fun startBackgroundMusic() {
         if (bgmPlayer?.isPlaying == true) return
         runCatching {
-            bgmPlayer?.release()
-            bgmPlayer = MediaPlayer.create(context, R.raw.bgm_1)?.apply {
-                isLooping = true
-                setVolume(prefs.bgmVolume, prefs.bgmVolume)
-                start()
+            val existing = bgmPlayer
+            if (existing != null) {
+                // Retomar um player pausado por onStop() em vez de recriar -- evita reiniciar a
+                // faixa do zero sempre que o utilizador entra/sai da app.
+                existing.setVolume(prefs.bgmVolume, prefs.bgmVolume)
+                existing.start()
+            } else {
+                bgmPlayer = MediaPlayer.create(context, R.raw.bgm_1)?.apply {
+                    isLooping = true
+                    setVolume(prefs.bgmVolume, prefs.bgmVolume)
+                    start()
+                }
             }
         }.onFailure { Log.w(TAG, "Falha ao iniciar a música de fundo", it) }
     }

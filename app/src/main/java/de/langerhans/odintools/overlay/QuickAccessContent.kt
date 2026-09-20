@@ -360,16 +360,20 @@ private fun QuickAccessPanel(
                         Button(onClick = { if (savedPresetName.isNotBlank()) { prefs.saveCustomProfile(savedPresetName, "TDP", tdpValue, 0f, 0f, 0f); savedPresetName = "" } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.height(50.dp)) { Text("Salvar", fontSize = 11.sp, color = Color.White) }
                     }
                 } else {
-                    Text("PERFIS DE UNDERCLOCK", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("PERFIS DE UNDERCLOCK (Perf + Prime -- GPU é independente)", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(6.dp))
-                    val clockProfiles = listOf("Power Save", "Balanced", "Triple A", "Stock")
+                    // Perfis combinados: só tocam Cluster 0 (Perf) e Cluster 1 (Prime). A GPU
+                    // NUNCA é alterada por estes botões -- fica sempre no que o utilizador definir
+                    // manualmente no bloco "Adreno GPU" abaixo (ver ClockPresets.kt).
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (profName in clockProfiles) {
-                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(theme.surface.copy(alpha = 0.5f)).clickable {
-                                when (profName) { "Power Save" -> { cpuPerfClock = 1735f; cpuPrimeClock = 2246f; gpuClock = 160f }; "Balanced" -> { cpuPerfClock = 2400f; cpuPrimeClock = 3000f; gpuClock = 500f }; "Triple A" -> { cpuPerfClock = 3000f; cpuPrimeClock = 3800f; gpuClock = 800f }; "Stock" -> { cpuPerfClock = 3530f; cpuPrimeClock = 4320f; gpuClock = 1100f } }
+                        for (prof in de.langerhans.odintools.models.CombinedClockProfiles.all) {
+                            val isSel = cpuPerfClock == prof.perfClockMHz && cpuPrimeClock == prof.primeClockMHz
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable {
+                                cpuPerfClock = prof.perfClockMHz
+                                cpuPrimeClock = prof.primeClockMHz
                                 performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
                                 persistOverride()
-                            }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) { Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                            }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) { Text(prof.label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                         }
                     }
                     val userClockProfiles = prefs.getAllCustomProfiles().filter { it.type == "CLOCK" }
@@ -385,14 +389,55 @@ private fun QuickAccessPanel(
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(theme.surface.copy(alpha = 0.5f)).padding(12.dp)) {
-                        Text("CPU Perf Cores: ${cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                        Slider(value = cpuPerfClock, onValueChange = { cpuPerfClock = it; performanceManager.applyAbsoluteClocks((it * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong()) }, onValueChangeFinished = { persistOverride() }, valueRange = 1735f..3530f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("CPU Prime Cores: ${cpuPrimeClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                        Slider(value = cpuPrimeClock, onValueChange = { cpuPrimeClock = it; performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (it * 1000).toLong(), (gpuClock * 1000000).toLong()) }, onValueChangeFinished = { persistOverride() }, valueRange = 2246f..4320f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Adreno GPU: ${gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                        Slider(value = gpuClock, onValueChange = { gpuClock = it; performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (it * 1000000).toLong()) }, onValueChangeFinished = { persistOverride() }, valueRange = 160f..1100f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                        // Presets discretos por cluster (estilo ClusterTune) em vez de sliders MHz
+                        // livres: o 8 Elite só aceita as frequências (OPPs) da sua tabela de
+                        // cpufreq -- um valor MHz "no meio" escolhido por um slider contínuo é
+                        // frequentemente rejeitado/arredondado pelo kernel de forma imprevisível,
+                        // o que explica o bug relatado ("os clocks não fazem efeito nenhum").
+                        Text("Cluster Perf (Cluster 0): ${cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (preset in de.langerhans.odintools.models.ClusterClockPresets.perfPresets) {
+                                val isSel = cpuPerfClock == preset.clockMHz
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
+                                    cpuPerfClock = preset.clockMHz
+                                    performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                                    persistOverride()
+                                }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(preset.label, color = theme.text, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Cluster Prime (Cluster 1): ${cpuPrimeClock.toInt()} MHz", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (preset in de.langerhans.odintools.models.ClusterClockPresets.primePresets) {
+                                val isSel = cpuPrimeClock == preset.clockMHz
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
+                                    cpuPrimeClock = preset.clockMHz
+                                    performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                                    persistOverride()
+                                }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(preset.label, color = theme.text, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Adreno GPU (independente): ${gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (preset in de.langerhans.odintools.models.ClusterClockPresets.gpuPresets) {
+                                val isSel = gpuClock == preset.clockMHz
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
+                                    gpuClock = preset.clockMHz
+                                    performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                                    persistOverride()
+                                }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(preset.label, color = theme.text, fontSize = 10.sp)
+                                }
+                            }
+                        }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
