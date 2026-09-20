@@ -14,181 +14,82 @@ class SharedPrefsRepo @Inject constructor(
 ) {
     private val prefs: SharedPreferences = context.getSharedPreferences(context.packageName + "_preferences", Context.MODE_PRIVATE)
 
-    var isFirstRun: Boolean
-        get() = prefs.getBoolean(KEY_IS_FIRST_RUN, true)
-        set(value) = prefs.edit().putBoolean(KEY_IS_FIRST_RUN, value).apply()
+    var isFirstRun: Boolean get() = prefs.getBoolean("is_first_run", true); set(value) = prefs.edit().putBoolean("is_first_run", value).apply()
+    var selectedThemeIndex: Int get() = prefs.getInt("selected_theme_index", 1); set(value) = prefs.edit().putInt("selected_theme_index", value).apply()
+    var useAmoledBlack: Boolean get() = prefs.getBoolean("use_amoled_black", false); set(value) = prefs.edit().putBoolean("use_amoled_black", value).apply()
+    var overlayEnabled: Boolean get() = prefs.getBoolean("overlay_enabled", false); set(value) = prefs.edit().putBoolean("overlay_enabled", value).apply()
+    var overlayHandleOpacity: Float get() = prefs.getFloat("overlay_handle_opacity", 0.5f); set(value) = prefs.edit().putFloat("overlay_handle_opacity", value).apply()
+    var overlayHandleWidth: Int get() = prefs.getInt("overlay_handle_width", 22); set(value) = prefs.edit().putInt("overlay_handle_width", value).apply()
+    var overlayPanelOpacity: Float get() = prefs.getFloat("overlay_panel_opacity", 0.95f); set(value) = prefs.edit().putFloat("overlay_panel_opacity", value).apply()
+    var overlayPanelBlur: Float get() = prefs.getFloat("overlay_panel_blur", 0.0f); set(value) = prefs.edit().putFloat("overlay_panel_blur", value).apply()
+    var overlayShortcutKeyCode: Int get() = prefs.getInt("overlay_shortcut_keycode", 0); set(value) = prefs.edit().putInt("overlay_shortcut_keycode", value).apply()
 
-    var selectedThemeIndex: Int
-        get() = prefs.getInt(KEY_SELECTED_THEME_INDEX, 1)
-        set(value) = prefs.edit().putInt(KEY_SELECTED_THEME_INDEX, value).apply()
+    var disabledControllerStyle: String? get() = prefs.getString("disabled_controller_style", null); set(value) = prefs.edit().putString("disabled_controller_style", value).apply()
+    var disabledL2r2Style: String? get() = prefs.getString("disabled_l2r2_style", null); set(value) = prefs.edit().putString("disabled_l2r2_style", value).apply()
 
-    var useAmoledBlack: Boolean
-        get() = prefs.getBoolean(KEY_USE_AMOLED_BLACK, false)
-        set(value) = prefs.edit().putBoolean(KEY_USE_AMOLED_BLACK, value).apply()
+    var saturationOverride: Float get() = prefs.getFloat("saturation_override", 1.0f); set(value) = prefs.edit().putFloat("saturation_override", value).apply()
+    var temperatureOverride: Float get() = prefs.getFloat("temperature_override", 6500f); set(value) = prefs.edit().putFloat("temperature_override", value).apply()
 
-    var overlayEnabled: Boolean
-        get() = prefs.getBoolean(KEY_OVERLAY_ENABLED, false)
-        set(value) = prefs.edit().putBoolean(KEY_OVERLAY_ENABLED, value).apply()
+    var appOverridesEnabled: Boolean get() = prefs.getBoolean("app_overrides_enabled", false); set(value) = prefs.edit().putBoolean("app_overrides_enabled", value).apply()
+    var useRootTarget: Boolean get() = prefs.getBoolean("use_root_target", false); set(value) = prefs.edit().putBoolean("use_root_target", value).apply()
+    var fanMode: Int get() = prefs.getInt("fan_mode", 0); set(value) = prefs.edit().putInt("fan_mode", value).apply()
 
-    var overlayHandleOpacity: Float
-        get() = prefs.getFloat(KEY_OVERLAY_HANDLE_OPACITY, 0.5f)
-        set(value) = prefs.edit().putFloat(KEY_OVERLAY_HANDLE_OPACITY, value).apply()
+    var globalLsfgEnabled: Boolean get() = prefs.getBoolean("global_lsfg_enabled", false); set(value) = prefs.edit().putBoolean("global_lsfg_enabled", value).apply()
+    var lsfgMultiplier: String get() = prefs.getString("lsfg_multiplier", "2x") ?: "2x"; set(value) = prefs.edit().putString("lsfg_multiplier", value).apply()
+    var lsfgFramePacing: Boolean get() = prefs.getBoolean("lsfg_pacing", true); set(value) = prefs.edit().putBoolean("lsfg_pacing", value).apply()
+    var lsfgPerformanceMode: Boolean get() = prefs.getBoolean("lsfg_performance_mode", false); set(value) = prefs.edit().putBoolean("lsfg_performance_mode", value).apply()
 
-    var overlayHandleWidth: Int
-        get() = prefs.getInt(KEY_OVERLAY_HANDLE_WIDTH, 22)
-        set(value) = prefs.edit().putInt(KEY_OVERLAY_HANDLE_WIDTH, value).apply()
+    var globalSgsrEnabled: Boolean get() = prefs.getBoolean("global_sgsr_enabled", false); set(value) = prefs.edit().putBoolean("global_sgsr_enabled", value).apply()
+    var sgsrMode: String get() = prefs.getString("sgsr_mode", "Quality") ?: "Quality"; set(value) = prefs.edit().putString("sgsr_mode", value).apply()
+    var sgsrSharpness: Float get() = prefs.getFloat("sgsr_sharpness", 0.5f); set(value) = prefs.edit().putFloat("sgsr_sharpness", value).apply()
+    var reshadeProfile: String get() = prefs.getString("reshade_profile", "Native") ?: "Native"; set(value) = prefs.edit().putString("reshade_profile", value).apply()
+    var showFpsOverlay: Boolean get() = prefs.getBoolean("fps_overlay", false); set(value) = prefs.edit().putBoolean("fps_overlay", value).apply()
 
-    // --- NOVAS OPÇÕES DO FUNDO DO OVERLAY ---
-    var overlayPanelOpacity: Float
-        get() = prefs.getFloat(KEY_OVERLAY_PANEL_OPACITY, 0.95f)
-        set(value) = prefs.edit().putFloat(KEY_OVERLAY_PANEL_OPACITY, value).apply()
+    var currentForegroundApp: String get() = prefs.getString("current_foreground_app", "global") ?: "global"; set(value) = prefs.edit().putString("current_foreground_app", value).apply()
 
-    var overlayPanelBlur: Float
-        get() = prefs.getFloat(KEY_OVERLAY_PANEL_BLUR, 0.0f)
-        set(value) = prefs.edit().putFloat(KEY_OVERLAY_PANEL_BLUR, value).apply()
-
-    var disabledControllerStyle: String?
-        get() = prefs.getString(KEY_DISABLED_CONTROLLER_STYLE, null)
-        set(value) = prefs.edit().putString(KEY_DISABLED_CONTROLLER_STYLE, value).apply()
-
-    var disabledL2r2Style: String?
-        get() = prefs.getString(KEY_DISABLED_L2R2_STYLE, null)
-        set(value) = prefs.edit().putString(KEY_DISABLED_L2R2_STYLE, value).apply()
-
-    var saturationOverride: Float
-        get() = prefs.getFloat(KEY_SATURATION_OVERRIDE, 1.0f)
-        set(value) = prefs.edit().putFloat(KEY_SATURATION_OVERRIDE, value).apply()
-
-    var temperatureOverride: Float
-        get() = prefs.getFloat(KEY_TEMPERATURE_OVERRIDE, 6500f)
-        set(value) = prefs.edit().putFloat(KEY_TEMPERATURE_OVERRIDE, value).apply()
-
-    var appOverridesEnabled: Boolean
-        get() = prefs.getBoolean(KEY_APP_OVERRIDES_ENABLED, false)
-        set(value) = prefs.edit().putBoolean(KEY_APP_OVERRIDES_ENABLED, value).apply()
-
-    var useRootTarget: Boolean
-        get() = prefs.getBoolean(KEY_USE_ROOT_TARGET, false)
-        set(value) = prefs.edit().putBoolean(KEY_USE_ROOT_TARGET, value).apply()
-
-    var fanMode: Int
-        get() = prefs.getInt(KEY_FAN_MODE, 0)
-        set(value) = prefs.edit().putInt(KEY_FAN_MODE, value).apply()
-
-    var globalLsfgEnabled: Boolean
-        get() = prefs.getBoolean(KEY_GLOBAL_LSFG_ENABLED, false)
-        set(value) = prefs.edit().putBoolean(KEY_GLOBAL_LSFG_ENABLED, value).apply()
-
-    var lsfgMultiplier: String
-        get() = prefs.getString(KEY_LSFG_MULTIPLIER, "2x") ?: "2x"
-        set(value) = prefs.edit().putString(KEY_LSFG_MULTIPLIER, value).apply()
-
-    var lsfgFramePacing: Boolean
-        get() = prefs.getBoolean(KEY_LSFG_PACING, true)
-        set(value) = prefs.edit().putBoolean(KEY_LSFG_PACING, value).apply()
-
-    var lsfgPerformanceMode: Boolean
-        get() = prefs.getBoolean(KEY_LSFG_PERFORMANCE_MODE, false)
-        set(value) = prefs.edit().putBoolean(KEY_LSFG_PERFORMANCE_MODE, value).apply()
-
-    var lsfgGeneratedQuality: Float
-        get() = prefs.getFloat(KEY_LSFG_GENERATED_QUALITY, 1.0f)
-        set(value) = prefs.edit().putFloat(KEY_LSFG_GENERATED_QUALITY, value).apply()
-
-    var globalSgsrEnabled: Boolean
-        get() = prefs.getBoolean(KEY_GLOBAL_SGSR_ENABLED, false)
-        set(value) = prefs.edit().putBoolean(KEY_GLOBAL_SGSR_ENABLED, value).apply()
-
-    var sgsrMode: String
-        get() = prefs.getString(KEY_SGSR_MODE, "Quality") ?: "Quality"
-        set(value) = prefs.edit().putString(KEY_SGSR_MODE, value).apply()
-
-    var sgsrSharpness: Float
-        get() = prefs.getFloat(KEY_SGSR_SHARPNESS, 0.5f)
-        set(value) = prefs.edit().putFloat(KEY_SGSR_SHARPNESS, value).apply()
-
-    var reshadeProfile: String
-        get() = prefs.getString(KEY_RESHADE_PROFILE, "Native") ?: "Native"
-        set(value) = prefs.edit().putString(KEY_RESHADE_PROFILE, value).apply()
-
-    var showFpsOverlay: Boolean
-        get() = prefs.getBoolean(KEY_FPS_OVERLAY, false)
-        set(value) = prefs.edit().putBoolean(KEY_FPS_OVERLAY, value).apply()
-
-    var currentForegroundApp: String
-        get() = prefs.getString(KEY_CURRENT_FG_APP, "global") ?: "global"
-        set(value) = prefs.edit().putString(KEY_CURRENT_FG_APP, value).apply()
-
-    fun savePerAppConfig(packageName: String, tdp: Float, perfClock: Float, primeClock: Float, gpuClock: Float, reshade: String, sgsr: Boolean, sgsrMode: String, lsfg: Boolean) {
+    // --- LÓGICA DE PER-APP OVERRIDES ---
+    fun savePerAppConfig(packageName: String, tdp: Float, perfClock: Float, primeClock: Float, gpuClock: Float, fanMode: Int, reshade: String, sgsr: Boolean, sgsrMode: String, sgsrSharp: Float, lsfg: Boolean, lsfgMult: String, lsfgPacing: Boolean, lsfgPerf: Boolean) {
         prefs.edit()
             .putFloat("override_${packageName}_tdp", tdp)
             .putFloat("override_${packageName}_perf", perfClock)
             .putFloat("override_${packageName}_prime", primeClock)
             .putFloat("override_${packageName}_gpu", gpuClock)
+            .putInt("override_${packageName}_fan", fanMode)
             .putString("override_${packageName}_reshade", reshade)
             .putBoolean("override_${packageName}_sgsr", sgsr)
             .putString("override_${packageName}_sgsrmode", sgsrMode)
+            .putFloat("override_${packageName}_sgsrsharp", sgsrSharp)
             .putBoolean("override_${packageName}_lsfg", lsfg)
+            .putString("override_${packageName}_lsfg_mult", lsfgMult)
+            .putBoolean("override_${packageName}_lsfg_pacing", lsfgPacing)
+            .putBoolean("override_${packageName}_lsfg_perf", lsfgPerf)
             .apply()
     }
 
-    fun getPerAppTdp(packageName: String, default: Float): Float = prefs.getFloat("override_${packageName}_tdp", default)
-    fun getPerAppPerfClock(packageName: String, default: Float): Float = prefs.getFloat("override_${packageName}_perf", default)
-    fun getPerAppPrimeClock(packageName: String, default: Float): Float = prefs.getFloat("override_${packageName}_prime", default)
-    fun getPerAppGpuClock(packageName: String, default: Float): Float = prefs.getFloat("override_${packageName}_gpu", default)
-    fun getPerAppReshade(packageName: String, default: String): String = prefs.getString("override_${packageName}_reshade", default) ?: default
+    fun getPerAppTdp(pkg: String, def: Float) = prefs.getFloat("override_${pkg}_tdp", def)
+    fun getPerAppPerfClock(pkg: String, def: Float) = prefs.getFloat("override_${pkg}_perf", def)
+    fun getPerAppPrimeClock(pkg: String, def: Float) = prefs.getFloat("override_${pkg}_prime", def)
+    fun getPerAppGpuClock(pkg: String, def: Float) = prefs.getFloat("override_${pkg}_gpu", def)
+    fun getPerAppFanMode(pkg: String, def: Int) = prefs.getInt("override_${pkg}_fan", def)
+    fun getPerAppReshade(pkg: String, def: String) = prefs.getString("override_${pkg}_reshade", def) ?: def
+    fun getPerAppSgsr(pkg: String, def: Boolean) = prefs.getBoolean("override_${pkg}_sgsr", def)
+    fun getPerAppSgsrMode(pkg: String, def: String) = prefs.getString("override_${pkg}_sgsrmode", def) ?: def
+    fun getPerAppSgsrSharp(pkg: String, def: Float) = prefs.getFloat("override_${pkg}_sgsrsharp", def)
+    fun getPerAppLsfg(pkg: String, def: Boolean) = prefs.getBoolean("override_${pkg}_lsfg", def)
+    fun getPerAppLsfgMult(pkg: String, def: String) = prefs.getString("override_${pkg}_lsfg_mult", def) ?: def
+    fun getPerAppLsfgPacing(pkg: String, def: Boolean) = prefs.getBoolean("override_${pkg}_lsfg_pacing", def)
+    fun getPerAppLsfgPerf(pkg: String, def: Boolean) = prefs.getBoolean("override_${pkg}_lsfg_perf", def)
 
     fun saveCustomProfile(name: String, type: String, val1: Float, val2: Float, val3: Float, val4: Float) {
-        prefs.edit()
-            .putString("custom_profile_${name}_type", type)
-            .putFloat("custom_profile_${name}_v1", val1)
-            .putFloat("custom_profile_${name}_v2", val2)
-            .putFloat("custom_profile_${name}_v3", val3)
-            .putFloat("custom_profile_${name}_v4", val4)
-            .apply()
+        prefs.edit().putString("custom_profile_${name}_type", type).putFloat("custom_profile_${name}_v1", val1).putFloat("custom_profile_${name}_v2", val2).putFloat("custom_profile_${name}_v3", val3).putFloat("custom_profile_${name}_v4", val4).apply()
     }
 
     fun getAllCustomProfiles(): List<CustomProfile> {
         val profiles = mutableListOf<CustomProfile>()
         prefs.all.keys.filter { it.startsWith("custom_profile_") && it.endsWith("_type") }.forEach { key ->
             val name = key.replace("custom_profile_", "").replace("_type", "")
-            val type = prefs.getString(key, "TDP") ?: "TDP"
-            val v1 = prefs.getFloat("custom_profile_${name}_v1", 0f)
-            val v2 = prefs.getFloat("custom_profile_${name}_v2", 0f)
-            val v3 = prefs.getFloat("custom_profile_${name}_v3", 0f)
-            val v4 = prefs.getFloat("custom_profile_${name}_v4", 0f)
-            profiles.add(CustomProfile(name, type, v1, v2, v3, v4))
+            profiles.add(CustomProfile(name, prefs.getString(key, "TDP") ?: "TDP", prefs.getFloat("custom_profile_${name}_v1", 0f), prefs.getFloat("custom_profile_${name}_v2", 0f), prefs.getFloat("custom_profile_${name}_v3", 0f), prefs.getFloat("custom_profile_${name}_v4", 0f)))
         }
         return profiles
-    }
-
-    companion object {
-        private const val KEY_IS_FIRST_RUN = "is_first_run"
-        private const val KEY_SELECTED_THEME_INDEX = "selected_theme_index"
-        private const val KEY_USE_AMOLED_BLACK = "use_amoled_black"
-        private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
-        private const val KEY_OVERLAY_HANDLE_OPACITY = "overlay_handle_opacity"
-        private const val KEY_OVERLAY_HANDLE_WIDTH = "overlay_handle_width"
-        private const val KEY_OVERLAY_HANDLE_POS_Y = "overlay_handle_pos_y"
-        private const val KEY_OVERLAY_PANEL_OPACITY = "overlay_panel_opacity"
-        private const val KEY_OVERLAY_PANEL_BLUR = "overlay_panel_blur"
-        private const val KEY_DISABLED_CONTROLLER_STYLE = "disabled_controller_style"
-        private const val KEY_DISABLED_L2R2_STYLE = "disabled_l2r2_style"
-        private const val KEY_SATURATION_OVERRIDE = "saturation_override"
-        private const val KEY_TEMPERATURE_OVERRIDE = "temperature_override"
-        private const val KEY_APP_OVERRIDES_ENABLED = "app_overrides_enabled"
-        private const val KEY_USE_ROOT_TARGET = "use_root_target"
-        private const val KEY_FAN_MODE = "fan_mode"
-        private const val KEY_GLOBAL_LSFG_ENABLED = "global_lsfg_enabled"
-        private const val KEY_LSFG_MULTIPLIER = "lsfg_multiplier"
-        private const val KEY_LSFG_PACING = "lsfg_pacing"
-        private const val KEY_LSFG_PERFORMANCE_MODE = "lsfg_performance_mode"
-        private const val KEY_LSFG_GENERATED_QUALITY = "lsfg_generated_quality"
-        private const val KEY_GLOBAL_SGSR_ENABLED = "global_sgsr_enabled"
-        private const val KEY_SGSR_MODE = "sgsr_mode"
-        private const val KEY_SGSR_SHARPNESS = "sgsr_sharpness"
-        private const val KEY_RESHADE_PROFILE = "reshade_profile"
-        private const val KEY_FPS_OVERLAY = "fps_overlay"
-        private const val KEY_CURRENT_FG_APP = "current_foreground_app"
     }
 }

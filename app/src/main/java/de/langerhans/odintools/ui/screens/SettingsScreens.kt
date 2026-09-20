@@ -8,6 +8,7 @@ import android.graphics.ImageDecoder
 import android.media.MediaPlayer
 import android.net.Uri
 import android.provider.Settings
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,22 +30,29 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
@@ -55,8 +63,6 @@ import de.langerhans.odintools.R
 import de.langerhans.odintools.main.MainUiModel
 import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.SettingsRepo
-import de.langerhans.odintools.tools.hardware.LosslessManager
-import de.langerhans.odintools.ui.composables.*
 import de.langerhans.odintools.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -116,8 +122,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             VideoBootScreen(theme = finalTheme, onVideoEnded = { showBootAnimation = false; playSfx(R.raw.sfx_select) })
         } else {
             Box(modifier = Modifier.fillMaxSize().background(finalTheme.background)) {
-
-                // Background Layer (Wallpaper + Blur)
                 Box(modifier = Modifier.fillMaxSize().alpha(wallpaperOpacity)) {
                     if (liveWallpaperType == "Live (MP4)") {
                         val activeVideoUri = if (selectedCustomUri != null && selectedCustomUri.toString().startsWith("content://")) selectedCustomUri else Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}")
@@ -128,10 +132,8 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                     }
                 }
 
-                // Overlay Gradient
                 Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(finalTheme.background.copy(alpha = 0.4f), Color.Black.copy(alpha = 0.85f)))))
 
-                // Adaptive Layout (Pill Design)
                 if (isLandscape) {
                     Row(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
                         Column(
@@ -187,10 +189,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 }
 
 @Composable
-fun OdinHubWelcomeScreen(
-    theme: ConsoleTheme, isEn: Boolean, currentThemeIndex: Int, amoledBlack: Boolean,
-    onThemeChange: (Int) -> Unit, onAmoledToggle: (Boolean) -> Unit, onLanguageChange: (String) -> Unit, onFinish: () -> Unit
-) {
+fun OdinHubWelcomeScreen(theme: ConsoleTheme, isEn: Boolean, currentThemeIndex: Int, amoledBlack: Boolean, onThemeChange: (Int) -> Unit, onAmoledToggle: (Boolean) -> Unit, onLanguageChange: (String) -> Unit, onFinish: () -> Unit) {
     val haptic = LocalHapticFeedback.current
     var expandedTheme by remember { mutableStateOf(false) }
     var expandedLang by remember { mutableStateOf(false) }
@@ -265,19 +264,8 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
 
 @Composable
 fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, isEn: Boolean, isLandscape: Boolean, onTabSelected: (Int) -> Unit) {
-    val modifier = if (isLandscape) {
-        Modifier.padding(horizontal = 8.dp).fillMaxHeight(0.85f).width(85.dp)
-    } else {
-        Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth().height(85.dp)
-    }
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(32.dp))
-            .background(theme.surface.copy(alpha = 0.5f))
-            .border(1.dp, theme.text.copy(alpha = 0.15f), RoundedCornerShape(32.dp)),
-        contentAlignment = Alignment.Center
-    ) {
+    val modifier = if (isLandscape) { Modifier.padding(horizontal = 8.dp).fillMaxHeight(0.85f).width(85.dp) } else { Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth().height(85.dp) }
+    Box(modifier = modifier.clip(RoundedCornerShape(32.dp)).background(theme.surface.copy(alpha = 0.5f)).border(1.dp, theme.text.copy(alpha = 0.15f), RoundedCornerShape(32.dp)), contentAlignment = Alignment.Center) {
         if (isLandscape) {
             Column(modifier = Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
                 ConsoleTabItem(0, "PERF", R.drawable.ic_sliders, selectedTab, theme, isLandscape, onTabSelected)
@@ -300,10 +288,7 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, isEn: Boolean, isLands
 fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, theme: ConsoleTheme, isLandscape: Boolean, onClick: (Int) -> Unit) {
     val isSelected = selectedTab == index
     val color by animateColorAsState(if (isSelected) theme.primary else theme.text.copy(alpha = 0.4f), label = "tabColor")
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick(index) }.padding(if (isLandscape) 4.dp else 8.dp)
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick(index) }.padding(if (isLandscape) 4.dp else 8.dp)) {
         Icon(painterResource(iconResId), contentDescription = title, tint = color, modifier = Modifier.size(if (isLandscape) 24.dp else 28.dp))
         Spacer(modifier = Modifier.height(4.dp))
         Text(title, color = color, fontSize = if (isLandscape) 10.sp else 12.sp, fontFamily = theme.fontFamily, fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold, letterSpacing = 1.sp)
@@ -318,18 +303,9 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     val isClockMode = uiState.activeLimitMode == "CLOCK"
 
     var savedPresetName by remember { mutableStateOf("") }
-    val tdpProfiles = listOf("Power Save" to 5f, "Balanced" to 10f, "Triple A" to 15f, "Stock" to 25f)
-    val clockProfiles = listOf("Power Save", "Balanced", "Triple A", "Stock")
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
-        // App Overrides Access Card
-        ConsoleCard(
-            if (isEn) "Per-App Overrides" else "Configurações por Aplicativo",
-            if (isEn) "Customize TDP, Clocks, and Shaders per game" else "Personalize TDP, Clocks e Shaders individualmente por jogo",
-            theme,
-            playClick = { navigateToOverrideList(); playClick() }
-        ) {
+        ConsoleCard(if (isEn) "Per-App Overrides" else "Configurações por Aplicativo", if (isEn) "Customize TDP, Clocks, and Shaders per game" else "Personalize TDP, Clocks e Shaders individualmente por jogo", theme, playClick = { navigateToOverrideList(); playClick() }) {
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if (isEn) "Manage game-specific rules" else "Gerenciar regras específicas de jogos", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
                 Text(if (isEn) "Configure >" else "Configurar >", color = theme.primary, fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily, fontSize = 12.sp)
@@ -344,6 +320,17 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
+        ConsoleSectionHeader(if (isEn) "Fan Control" else "Controle de Ventoinha", theme)
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            val fanModes = listOf(0 to "Smart", 1 to "Quiet", 2 to "Sport")
+            for ((modeValue, modeName) in fanModes) {
+                val isSel = uiState.fanMode == modeValue
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { viewModel.updateFanMode(modeValue) }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                    Text(modeName, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
         ConsoleSectionHeader(if (isEn) "Hardware Limitation Mode" else "Modo de Limitação de Hardware", theme)
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(4.dp)) {
             Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("TDP"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text(if (isEn) "Lock by TDP" else "Limitar por TDP", color = if (isTdpMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily) }
@@ -353,14 +340,28 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
         if (isTdpMode) {
             ConsoleCard(if (isEn) "Global TDP Profiles" else "Perfis Globais de TDP", if (isEn) "Select or create" else "Selecione ou crie um perfil", theme, enabled = isTdpMode) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    val defaultTdp = listOf("Power Save" to 5f, "Balanced" to 10f, "Triple A" to 15f, "Stock" to 25f)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for ((profName, watts) in tdpProfiles) {
+                        for ((profName, watts) in defaultTdp) {
                             val isSel = uiState.tdpValue == watts
                             Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable { if(isTdpMode) viewModel.updateTdp(watts) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                 Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
+                    val userTdpProfiles = uiState.customProfiles.filter { it.type == "TDP" }
+                    if (userTdpProfiles.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (prof in userTdpProfiles) {
+                                val isSel = uiState.tdpValue == prof.v1
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable { if(isTdpMode) viewModel.updateTdp(prof.v1) }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("TDP Limit: ${uiState.tdpValue.toInt()} W", color = theme.text, fontSize = 12.sp)
                     Slider(value = uiState.tdpValue, onValueChange = { viewModel.updateTdp(it) }, valueRange = 5f..25f, enabled = isTdpMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
@@ -374,8 +375,9 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
         } else {
             ConsoleCard(if (isEn) "Global Clock Profiles" else "Perfis Globais de Clocks", if (isEn) "Select or create" else "Selecione ou crie um perfil", theme, enabled = isClockMode) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    val defaultClocks = listOf("Power Save", "Balanced", "Triple A", "Stock")
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (profName in clockProfiles) {
+                        for (profName in defaultClocks) {
                             Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(theme.surface).clickable {
                                 if(isClockMode) {
                                     when (profName) {
@@ -390,6 +392,18 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                             }
                         }
                     }
+                    val userClockProfiles = uiState.customProfiles.filter { it.type == "CLOCK" }
+                    if (userClockProfiles.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (prof in userClockProfiles) {
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(theme.surface).clickable { if(isClockMode) viewModel.updateManualClocks(prof.v2, prof.v3, prof.v4) }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("CPU Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
                     Slider(value = uiState.cpuPerfClock, onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) }, valueRange = 1735f..3530f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
@@ -431,27 +445,14 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("Quality", "Balanced", "Performance", "Ultra").forEach { mode ->
                         val isSel = uiState.sgsrMode == mode
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isSel) theme.primary else theme.surface)
-                                .clickable { viewModel.updateSgsrOptions(mode, uiState.sgsrSharpness); playClick() }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable { viewModel.updateSgsrOptions(mode, uiState.sgsrSharpness); playClick() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                             Text(text = mode, color = Color.White, fontFamily = theme.fontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
                 Text("Nitidez (Sharpness): ${"%.2f".format(uiState.sgsrSharpness)}", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
-                Slider(
-                    value = uiState.sgsrSharpness,
-                    onValueChange = { viewModel.updateSgsrOptions(uiState.sgsrMode, it) },
-                    valueRange = 0.0f..1.0f,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
+                Slider(value = uiState.sgsrSharpness, onValueChange = { viewModel.updateSgsrOptions(uiState.sgsrMode, it) }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
 
@@ -467,14 +468,19 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
                     Box {
                         Text(uiState.lsfgMultiplier, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (uiState.globalLsfgEnabled) { expandedLsfgMult = true; playClick() } }.alpha(if(uiState.globalLsfgEnabled) 1f else 0.5f))
                         DropdownMenu(expanded = expandedLsfgMult, onDismissRequest = { expandedLsfgMult = false }, modifier = Modifier.background(theme.surface)) {
-                            listOf("2x", "3x", "4x", "6x").forEach { mult -> DropdownMenuItem(text = { Text(mult, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { viewModel.updateLsfgOptions(mult, uiState.lsfgFramePacing); expandedLsfgMult = false; playClick() }) }
+                            listOf("2x", "3x", "4x").forEach { mult -> DropdownMenuItem(text = { Text(mult, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { viewModel.updateLsfgOptions(mult, uiState.lsfgFramePacing, uiState.lsfgPerformanceMode); expandedLsfgMult = false; playClick() }) }
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Sincronia (Frame Pacing)", color = theme.text, fontFamily = theme.fontFamily)
-                    ConsoleToggle(checked = uiState.lsfgFramePacing, theme = theme, onCheckedChange = { viewModel.updateLsfgOptions(uiState.lsfgMultiplier, it); playClick() })
+                    ConsoleToggle(checked = uiState.lsfgFramePacing, theme = theme, onCheckedChange = { viewModel.updateLsfgOptions(uiState.lsfgMultiplier, it, uiState.lsfgPerformanceMode); playClick() })
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Modo Performance LSFG", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = uiState.lsfgPerformanceMode, theme = theme, onCheckedChange = { viewModel.updateLsfgOptions(uiState.lsfgMultiplier, uiState.lsfgFramePacing, it); playClick() })
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -506,17 +512,61 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
 @Composable
 fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
+
+    if (uiState.showRemapButtonDialog) {
+        ConsoleRemapDialog(initialValue = uiState.currentButtonKeyCode, theme = theme, onCancel = { viewModel.remapButtonDialogDismissed() }, onReset = { viewModel.saveButtonKeyCode(uiState.currentButtonSetting, 0); playClick() }, onSave = { viewModel.saveButtonKeyCode(uiState.currentButtonSetting, it); playClick() })
+    }
+
+    if (uiState.showOverlayShortcutDialog) {
+        ConsoleRemapDialog(initialValue = uiState.overlayShortcutKeyCode, theme = theme, onCancel = { viewModel.hideOverlayShortcutDialog() }, onReset = { viewModel.saveOverlayShortcut(0); playClick() }, onSave = { viewModel.saveOverlayShortcut(it); playClick() })
+    }
+
+    fun getDisplayName(keyCode: Int): String {
+        if (keyCode == 0) return if (isEn) "None" else "Nenhum"
+        return android.view.KeyEvent.keyCodeToString(keyCode).replace("KEYCODE_", "")
+    }
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ConsoleSectionHeader(if (isEn) "Mapping & Shortcuts" else "Mapeamento e Atalhos", theme)
-        ConsoleCard(if (isEn) "System Buttons" else "Botões de Sistema", if (isEn) "General behavior" else "Comportamento geral", theme, playClick = playClick) {
+        ConsoleSectionHeader(if (isEn) "Shortcuts & Actions" else "Atalhos e Ações", theme)
+
+        ConsoleCard(if (isEn) "Odin Hub Overlay" else "Atalho do Odin Hub", if (isEn) "Physical button to open the side menu" else "Botão físico para invocar o menu lateral", theme, playClick = null) {
+            Row(modifier = Modifier.fillMaxWidth().clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.showOverlayShortcutDialog() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(R.drawable.ic_app_settings), contentDescription = null, tint = theme.text, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(if (isEn) "Open Sidebar" else "Abrir Overlay", color = theme.text, fontFamily = theme.fontFamily)
+                }
+                Text(getDisplayName(uiState.overlayShortcutKeyCode), color = theme.primary, fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
+            }
+        }
+
+        ConsoleCard(if (isEn) "System Buttons" else "Botões de Sistema", if (isEn) "General behavior" else "Comportamento geral", theme, playClick = null) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if (isEn) "Single Press Home" else "Toque Único no Home", color = theme.text, fontFamily = theme.fontFamily)
                 ConsoleToggle(checked = uiState.singlePressHomeEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateSinglePressHomePreference(it); playClick() })
             }
         }
-        ConsoleCard(if (isEn) "Back Buttons (Macro)" else "Botões Traseiros (Macro)", if (isEn) "Map M1 & M2" else "Mapear M1 e M2", theme, playClick = playClick) {
-            TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m1Button, description = R.string.remapButtonDescription) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M1_VALUE) }
-            TriggerPreference(icon = R.drawable.ic_gamepad, title = R.string.m2Button, description = R.string.remapButtonDescription) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M2_VALUE) }
+
+        ConsoleSectionHeader(if (isEn) "Hardware Mapping" else "Mapeamento Físico", theme)
+
+        ConsoleCard(if (isEn) "Back Buttons (M1/M2)" else "Botões Traseiros (M1/M2)", if (isEn) "Native system remap" else "Mapeamento nativo do sistema", theme, playClick = null) {
+            Row(modifier = Modifier.fillMaxWidth().clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M1_VALUE) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_gamepad), contentDescription = null, tint = theme.text, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(stringResource(R.string.m1Button), color = theme.text, fontFamily = theme.fontFamily)
+                    Text(stringResource(R.string.remapButtonDescription), color = theme.text.copy(alpha=0.6f), fontSize = 12.sp, fontFamily = theme.fontFamily)
+                }
+            }
+            HorizontalDivider(color = theme.text.copy(alpha = 0.1f), thickness = 1.dp)
+            Row(modifier = Modifier.fillMaxWidth().clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M2_VALUE) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_gamepad), contentDescription = null, tint = theme.text, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(stringResource(R.string.m2Button), color = theme.text, fontFamily = theme.fontFamily)
+                    Text(stringResource(R.string.remapButtonDescription), color = theme.text.copy(alpha=0.6f), fontSize = 12.sp, fontFamily = theme.fontFamily)
+                }
+            }
         }
     }
 }
@@ -532,7 +582,6 @@ fun SystemPanel(
 ) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
-    val losslessManager = remember { LosslessManager(context) }
     var expandedLang by rememberSaveable { mutableStateOf(false) }
     var expandedTheme by rememberSaveable { mutableStateOf(false) }
     var expandedWallType by rememberSaveable { mutableStateOf(false) }
@@ -542,8 +591,7 @@ fun SystemPanel(
 
     val losslessPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
-            val success = losslessManager.importDll(it)
-            viewModel.refreshDllStatus()
+            val success = viewModel.importLosslessDll(it)
             Toast.makeText(context, if (success) "Lossless.dll importada com sucesso!" else "Falha na importação", Toast.LENGTH_SHORT).show()
         }
     }
@@ -566,21 +614,17 @@ fun SystemPanel(
                     })
                 }
                 Spacer(Modifier.height(16.dp))
+                Text("Opacidade do Fundo: ${(uiState.overlayPanelOpacity * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Slider(value = uiState.overlayPanelOpacity, onValueChange = { viewModel.updateOverlayPanelOpacity(it) }, valueRange = 0.1f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Spacer(Modifier.height(8.dp))
+                Text("Desfoque do Fundo: ${(uiState.overlayPanelBlur * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Slider(value = uiState.overlayPanelBlur, onValueChange = { viewModel.updateOverlayPanelBlur(it) }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Spacer(Modifier.height(8.dp))
                 Text("Opacidade do Puxador: ${(uiState.overlayHandleOpacity * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
-                Slider(
-                    value = uiState.overlayHandleOpacity,
-                    onValueChange = { viewModel.updateHandleOpacity(it) },
-                    valueRange = 0.1f..1.0f,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
+                Slider(value = uiState.overlayHandleOpacity, onValueChange = { viewModel.updateHandleOpacity(it) }, valueRange = 0.1f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 Spacer(Modifier.height(8.dp))
                 Text("Espessura do Puxador: ${uiState.overlayHandleWidth} dp", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
-                Slider(
-                    value = uiState.overlayHandleWidth.toFloat(),
-                    onValueChange = { viewModel.updateHandleWidth(it.toInt()) },
-                    valueRange = 16f..36f,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
+                Slider(value = uiState.overlayHandleWidth.toFloat(), onValueChange = { viewModel.updateHandleWidth(it.toInt()) }, valueRange = 16f..36f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
 
@@ -700,4 +744,29 @@ fun ConsoleToggle(checked: Boolean, theme: ConsoleTheme, onCheckedChange: (Boole
     ) {
         Box(modifier = Modifier.padding(start = thumbOffset).size(16.dp).clip(RoundedCornerShape(4.dp)).background(thumbColor))
     }
+}
+
+@Composable
+fun ConsoleRemapDialog(initialValue: Int, theme: ConsoleTheme, onCancel: () -> Unit, onReset: () -> Unit, onSave: (Int) -> Unit) {
+    val focusRequester = remember { FocusRequester() }
+    var userValue by remember { mutableIntStateOf(initialValue) }
+
+    Dialog(onDismissRequest = onCancel) {
+        Surface(shape = RoundedCornerShape(16.dp), color = theme.surface, modifier = Modifier.focusRequester(focusRequester).focusable().onKeyEvent { if (it.type == KeyEventType.KeyUp) { userValue = it.nativeKeyEvent.keyCode }; true }) {
+            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Mapear Botão", color = theme.primary, fontWeight = FontWeight.Bold, fontSize = 20.sp, fontFamily = theme.fontFamily)
+                Spacer(Modifier.height(16.dp))
+                Text("Pressione o novo botão...", color = theme.text.copy(alpha = 0.7f), fontFamily = theme.fontFamily)
+                Spacer(Modifier.height(8.dp))
+                Text(KeyEvent.keyCodeToString(userValue).replace("KEYCODE_", ""), color = theme.text, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
+                Spacer(Modifier.height(24.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Button(onClick = onReset, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) { Text("Padrão", color = theme.text, fontFamily = theme.fontFamily) }
+                    Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) { Text("Cancelar", color = theme.text, fontFamily = theme.fontFamily) }
+                    Button(onClick = { onSave(userValue) }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Salvar", color = Color.White, fontFamily = theme.fontFamily) }
+                }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }

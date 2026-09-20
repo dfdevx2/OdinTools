@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,7 +18,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,7 +43,6 @@ fun QuickAccessContent(
         label = "widthAnim"
     )
 
-    // Estados observáveis para reatividade em tempo real
     var panelOpacity by remember { mutableFloatStateOf(prefs.overlayPanelOpacity) }
     var panelBlur by remember { mutableFloatStateOf(prefs.overlayPanelBlur) }
 
@@ -82,12 +81,7 @@ fun QuickAccessContent(
                     .clickable { onExpand() },
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(2.dp)
-                        .height(30.dp)
-                        .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(50))
-                )
+                Box(modifier = Modifier.width(2.dp).height(30.dp).background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(50)))
             }
         }
     }
@@ -104,7 +98,6 @@ private fun QuickAccessPanel(
     onBlurChange: (Float) -> Unit,
     onClose: () -> Unit
 ) {
-    val context = LocalContext.current
     val performanceManager = remember { PerformanceManager(ShellExecutor()) }
     val currentApp = prefs.currentForegroundApp
 
@@ -112,26 +105,29 @@ private fun QuickAccessPanel(
 
     var reshadeProfile by remember { mutableStateOf(prefs.getPerAppReshade(currentApp, prefs.reshadeProfile)) }
 
-    var sgsrEnabled by remember { mutableStateOf(prefs.globalSgsrEnabled) }
-    var sgsrMode by remember { mutableStateOf(prefs.sgsrMode) }
-    var sgsrSharpness by remember { mutableFloatStateOf(prefs.sgsrSharpness) }
+    var sgsrEnabled by remember { mutableStateOf(prefs.getPerAppSgsr(currentApp, prefs.globalSgsrEnabled)) }
+    var sgsrMode by remember { mutableStateOf(prefs.getPerAppSgsrMode(currentApp, prefs.sgsrMode)) }
+    var sgsrSharpness by remember { mutableFloatStateOf(prefs.getPerAppSgsrSharp(currentApp, prefs.sgsrSharpness)) }
 
-    var lsfgEnabled by remember { mutableStateOf(prefs.globalLsfgEnabled) }
-    var lsfgMultiplier by remember { mutableStateOf(prefs.lsfgMultiplier) }
-    var lsfgPacing by remember { mutableStateOf(prefs.lsfgFramePacing) }
-    var lsfgPerfMode by remember { mutableStateOf(prefs.lsfgPerformanceMode) }
-    var lsfgQuality by remember { mutableFloatStateOf(prefs.lsfgGeneratedQuality) }
+    var lsfgEnabled by remember { mutableStateOf(prefs.getPerAppLsfg(currentApp, prefs.globalLsfgEnabled)) }
+    var lsfgMultiplier by remember { mutableStateOf(prefs.getPerAppLsfgMult(currentApp, prefs.lsfgMultiplier)) }
+    var lsfgPacing by remember { mutableStateOf(prefs.getPerAppLsfgPacing(currentApp, prefs.lsfgFramePacing)) }
+    var lsfgPerfMode by remember { mutableStateOf(prefs.getPerAppLsfgPerf(currentApp, prefs.lsfgPerformanceMode)) }
 
     var activeLimitMode by remember { mutableStateOf("TDP") }
+    var fanMode by remember { mutableIntStateOf(prefs.getPerAppFanMode(currentApp, prefs.fanMode)) }
+
+    // Valores absolutos para resolver o erro
     var tdpValue by remember { mutableFloatStateOf(prefs.getPerAppTdp(currentApp, 15f)) }
     var cpuPerfClock by remember { mutableFloatStateOf(prefs.getPerAppPerfClock(currentApp, 3530f)) }
     var cpuPrimeClock by remember { mutableFloatStateOf(prefs.getPerAppPrimeClock(currentApp, 4320f)) }
     var gpuClock by remember { mutableFloatStateOf(prefs.getPerAppGpuClock(currentApp, 1100f)) }
+
     var savedPresetName by remember { mutableStateOf("") }
 
     DisposableEffect(Unit) {
         onDispose {
-            prefs.savePerAppConfig(currentApp, tdpValue, cpuPerfClock, cpuPrimeClock, gpuClock, reshadeProfile, sgsrEnabled, sgsrMode, lsfgEnabled)
+            prefs.savePerAppConfig(currentApp, tdpValue, cpuPerfClock, cpuPrimeClock, gpuClock, fanMode, reshadeProfile, sgsrEnabled, sgsrMode, sgsrSharpness, lsfgEnabled, lsfgMultiplier, lsfgPacing, lsfgPerfMode)
         }
     }
 
@@ -172,7 +168,7 @@ private fun QuickAccessPanel(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("VULKAN POST-FX & RESHADE", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                val allProfiles = listOf("Native", "Vibrant", "Cinema", "Retro", "HDR Boost", "Vibrance", "Curves", "CAS Lite", "Technicolor", "Levels", "Game Clarity", "Cinematic", "Vivid", "Competitive", "Adaptive Sharpen", "Filmic", "Arcade", "Retro CRT", "Upscale Sharp", "Pixel Clean", "Anime Edge", "Color Boost")
+                val allProfiles = listOf("Native", "Vibrant", "Retro", "HDR Boost", "Game Clarity", "Cinematic")
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (rowProfiles in allProfiles.chunked(2)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -217,24 +213,47 @@ private fun QuickAccessPanel(
                             Switch(checked = lsfgEnabled && isDllReady, enabled = isDllReady, onCheckedChange = { lsfgEnabled = it; VulkanNativeBridge.applyLsfg(it, lsfgMultiplier, lsfgPacing) }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
                         }
                         if (!isDllReady) {
-                            Text("Requer Lossless.dll", color = Color(0xFFFF5252), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+                            Text("Requer Lossless.dll no Hub", color = Color(0xFFFF5252), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
                         } else {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Multiplicador", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    listOf("2x", "3x", "4x", "6x").forEach { mult ->
+                                    listOf("2x", "3x", "4x").forEach { mult ->
                                         Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(if (lsfgMultiplier == mult) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable { lsfgMultiplier = mult; VulkanNativeBridge.applyLsfg(lsfgEnabled, mult, lsfgPacing) }.padding(horizontal = 8.dp, vertical = 2.dp)) {
                                             Text(mult, color = Color.White, fontSize = 10.sp)
                                         }
                                     }
                                 }
                             }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Sincronia (Frame Pacing)", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                                Switch(checked = lsfgPacing, onCheckedChange = { lsfgPacing = it; VulkanNativeBridge.applyLsfg(lsfgEnabled, lsfgMultiplier, it) }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Modo Performance", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                                Switch(checked = lsfgPerfMode, onCheckedChange = { lsfgPerfMode = it }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
+                            }
                         }
                     }
                 }
             }
             2 -> {
+                Text("CONTROLE DA VENTOINHA", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(theme.surface.copy(alpha = 0.5f)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    val fanModes = listOf(0 to "Smart", 1 to "Quiet", 2 to "Sport")
+                    for ((modeValue, modeName) in fanModes) {
+                        val isSel = fanMode == modeValue
+                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { fanMode = modeValue; ShellExecutor().setIntSystemSetting("fan_mode", modeValue) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            Text(modeName, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
                 Text("MODO DE LIMITAÇÃO", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -252,6 +271,18 @@ private fun QuickAccessPanel(
                         for ((profName, watts) in tdpProfiles) {
                             val isSel = tdpValue == watts
                             Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { tdpValue = watts; performanceManager.applyDynamicTdp(watts) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) { Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                    val userTdpProfiles = prefs.getAllCustomProfiles().filter { it.type == "TDP" }
+                    if (userTdpProfiles.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (prof in userTdpProfiles) {
+                                val isSel = tdpValue == prof.v1
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { tdpValue = prof.v1; performanceManager.applyDynamicTdp(prof.v1) }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -274,6 +305,17 @@ private fun QuickAccessPanel(
                                 when (profName) { "Power Save" -> { cpuPerfClock = 1735f; cpuPrimeClock = 2246f; gpuClock = 160f }; "Balanced" -> { cpuPerfClock = 2400f; cpuPrimeClock = 3000f; gpuClock = 500f }; "Triple A" -> { cpuPerfClock = 3000f; cpuPrimeClock = 3800f; gpuClock = 800f }; "Stock" -> { cpuPerfClock = 3530f; cpuPrimeClock = 4320f; gpuClock = 1100f } }
                                 performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
                             }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) { Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                    val userClockProfiles = prefs.getAllCustomProfiles().filter { it.type == "CLOCK" }
+                    if (userClockProfiles.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (prof in userClockProfiles) {
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(theme.surface.copy(alpha = 0.5f)).clickable { cpuPerfClock = prof.v2; cpuPrimeClock = prof.v3; gpuClock = prof.v4; performanceManager.applyAbsoluteClocks((prof.v2 * 1000).toLong(), (prof.v3 * 1000).toLong(), (prof.v4 * 1000000).toLong()) }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
