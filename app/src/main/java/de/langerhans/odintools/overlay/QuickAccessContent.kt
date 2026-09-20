@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.langerhans.odintools.data.SharedPrefsRepo
-import de.langerhans.odintools.tools.ShellExecutor
+import de.langerhans.odintools.models.FanMode
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import de.langerhans.odintools.ui.theme.ConsoleTheme
@@ -33,6 +33,7 @@ fun QuickAccessContent(
     theme: ConsoleTheme,
     prefs: SharedPrefsRepo,
     isDllReady: Boolean,
+    performanceManager: PerformanceManager,
     onExpand: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -60,6 +61,7 @@ fun QuickAccessContent(
                     theme = theme,
                     prefs = prefs,
                     isDllReady = isDllReady,
+                    performanceManager = performanceManager,
                     panelOpacity = panelOpacity,
                     onOpacityChange = { panelOpacity = it; prefs.overlayPanelOpacity = it },
                     onClose = onClose
@@ -87,11 +89,23 @@ private fun QuickAccessPanel(
     theme: ConsoleTheme,
     prefs: SharedPrefsRepo,
     isDllReady: Boolean,
+    performanceManager: PerformanceManager,
     panelOpacity: Float,
     onOpacityChange: (Float) -> Unit,
     onClose: () -> Unit
 ) {
-    val performanceManager = remember { PerformanceManager(ShellExecutor()) }
+    // CAUSA RAIZ (auditoria): esta função criava a sua PRÓPRIA instância de PerformanceManager
+    // (`remember { PerformanceManager(ShellExecutor()) }`), completamente à parte do singleton
+    // gerido pelo Hilt que o MainViewModel/ForegroundAppWatcherService/OdinHubService usam.
+    // Como PerformanceManager arranca um daemon em segundo plano que reescreve os clocks a cada
+    // 1s a partir do seu PRÓPRIO estado interno, isto criava DOIS daemons independentes a
+    // competir pelos mesmos nós de sysfs: sempre que o utilizador ajustava o TDP/clocks no
+    // overlay (o painel que se usa a meio do jogo — o caso de uso mais crítico), a escrita
+    // "colava" por um instante e depois era imediatamente sobrescrita pelo outro daemon (o
+    // singleton "oficial", com o seu próprio estado desatualizado) no tick seguinte. Isto
+    // explica exatamente o sintoma "os valores mudam mas não fixam de forma fiável". A correção
+    // é receber o singleton injetado (ver GamingOverlayService/QuickAccessOverlay) em vez de
+    // instanciar um novo.
     val currentApp = prefs.currentForegroundApp
 
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -233,11 +247,15 @@ private fun QuickAccessPanel(
                 Text("CONTROLE DA VENTOINHA", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(theme.surface.copy(alpha = 0.5f)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    val fanModes = listOf(0 to "Smart", 1 to "Quiet", 2 to "Sport")
-                    for ((modeValue, modeName) in fanModes) {
-                        val isSel = fanMode == modeValue
-                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { fanMode = modeValue; ShellExecutor().setIntSystemSetting("fan_mode", modeValue) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                            Text(modeName, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    // Usa os settingsValue reais de FanMode (1/4/5) e o performanceManager
+                    // partilhado, em vez de índices 0/1/2 escritos à mão com um ShellExecutor()
+                    // novo a cada toque: essa combinação fazia com que o modo escolhido aqui
+                    // fosse reinterpretado como outro (ou como "Stock") assim que o serviço de
+                    // acessibilidade reaplicava os perfis ao trocar de app.
+                    for (mode in FanMode.selectable) {
+                        val isSel = fanMode == mode.settingsValue
+                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { fanMode = mode.settingsValue; performanceManager.applyFanMode(mode) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            Text(mode.shortLabel, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

@@ -73,6 +73,46 @@
                 android:value="performance_monitoring" />
         </service>
 
+        <!--
+            MOTOR DE PERFORMANCE EM PRIMEIRO PLANO (OdinHubService).
+            Faltava esta declaração: sem ela, `context.startService(Intent(context,
+            OdinHubService::class.java))`/startForegroundService lançaria
+            ActivityNotFoundException em tempo de execução, e o serviço de monitorização
+            contínua nunca chegaria a arrancar num dispositivo real.
+        -->
+        <service
+            android:name=".service.OdinHubService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="performance_monitoring" />
+        </service>
+
+        <!--
+            SERVIÇO DE ACESSIBILIDADE (deteção de app em primeiro plano + atalho físico).
+            Esta declaração faltava por completo: sem o intent-filter
+            android.accessibilityservice.AccessibilityService, a permissão
+            BIND_ACCESSIBILITY_SERVICE e o meta-data apontando para
+            accessibility_service_config.xml, o Android nunca lista este serviço em
+            Definições > Acessibilidade — ou seja, o utilizador não consegue sequer ativá-lo,
+            e toda a lógica de App Overrides / interceção da tecla de atalho fica morta,
+            independentemente do PerformanceManager estar correto.
+        -->
+        <service
+            android:name=".service.ForegroundAppWatcherService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <receiver
             android:name=".tools.BootReceiver"
             android:enabled="true"

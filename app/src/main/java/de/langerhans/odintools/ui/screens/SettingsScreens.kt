@@ -60,6 +60,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import de.langerhans.odintools.R
+import de.langerhans.odintools.models.FanMode
 import de.langerhans.odintools.main.MainUiModel
 import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.SettingsRepo
@@ -322,11 +323,15 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 
         ConsoleSectionHeader(if (isEn) "Fan Control" else "Controle de Ventoinha", theme)
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            val fanModes = listOf(0 to "Smart", 1 to "Quiet", 2 to "Sport")
-            for ((modeValue, modeName) in fanModes) {
-                val isSel = uiState.fanMode == modeValue
-                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { viewModel.updateFanMode(modeValue) }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                    Text(modeName, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            // Usa os settingsValue reais de FanMode (1/4/5) em vez de índices 0/1/2 escritos à
+            // mão: a auditoria encontrou este mesmo ecrã, o overlay e o ForegroundAppWatcherService
+            // cada um com o seu próprio mapeamento de números, pelo que a ventoinha escolhida
+            // aqui era reinterpretada como outro modo (ou como "Stock") assim que o serviço de
+            // acessibilidade reaplicava os perfis ao trocar de app.
+            for (mode in FanMode.selectable) {
+                val isSel = uiState.fanMode == mode.settingsValue
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { viewModel.updateFanMode(mode.settingsValue) }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                    Text(mode.shortLabel, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

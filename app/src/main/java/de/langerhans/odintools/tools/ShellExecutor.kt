@@ -3,9 +3,21 @@ package de.langerhans.odintools.tools
 import android.annotation.SuppressLint
 import android.os.IBinder
 import android.os.Parcel
+import android.util.Log
 import java.nio.charset.Charset
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Exceção usada quando o binder do PServer devolve `false` em [IBinder.transact] — ou seja, a
+ * transação foi entregue mas o lado remoto rejeitou-a (comando malformado, código de transação
+ * desconhecido, ou o processo do servidor morreu a meio). Antes desta auditoria, esse `false`
+ * era completamente ignorado e o chamador recebia `Result.success(null)`, indistinguível de uma
+ * leitura legítima que devolve "null" — a causa raiz de porque as escritas em sysfs pareciam
+ * "não colar" sem qualquer erro visível.
+ */
+class PServerTransactionRejectedException(cmd: String) :
+    IllegalStateException("PServer rejeitou a transação (transact()==false) para: $cmd")
 
 @Singleton
 @SuppressLint("DiscouragedPrivateApi", "PrivateApi")
@@ -26,21 +38,45 @@ class ShellExecutor @Inject constructor() {
     }
 
     fun executeAsRoot(cmd: String): Result<String?> {
-        if (binder == null) return Result.failure(IllegalStateException("PServer not available!"))
+        val localBinder = binder
+        if (localBinder == null) {
+            Log.w(TAG, "executeAsRoot: PServer indisponível, comando descartado: $cmd")
+            return Result.failure(IllegalStateException("PServer not available!"))
+        }
 
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
-        data.writeStringArray(arrayOf(cmd, "1"))
-        runCatching { binder!!.transact(0, data, reply, 0) } // <-- OS DOIS PONTOS DE EXCLAMAÇÃO ENTRAM AQUI
-            .getOrElse {
-                return Result.failure(it)
+        try {
+            data.writeStringArray(arrayOf(cmd, "1"))
+
+            val delivered = runCatching { localBinder.transact(0, data, reply, 0) }
+                .getOrElse {
+                    Log.e(TAG, "executeAsRoot: transact() lançou exceção para '$cmd'", it)
+                    return Result.failure(it)
+                }
+
+            // CAUSA RAIZ: transact() devolve `false` (sem lançar exceção) quando o binder
+            // remoto rejeita ou não consegue processar a transação. O código original nunca
+            // verificava este valor, pelo que o comando falhava em silêncio e o chamador via
+            // um "sucesso" com resultado nulo. Isto explica por que os sliders da UI mudavam
+            // mas os nós de sysfs (TDP/clocks/GPU) não eram realmente escritos.
+            if (!delivered) {
+                Log.e(TAG, "executeAsRoot: transact() devolveu false para '$cmd'")
+                return Result.failure(PServerTransactionRejectedException(cmd))
             }
-        val result = reply.createByteArray()?.toString(Charset.defaultCharset())?.trim()?.let {
-            if (it == "null") null else it
+
+            val result = reply.createByteArray()?.toString(Charset.defaultCharset())?.trim()?.let {
+                if (it == "null") null else it
+            }
+            return Result.success(result)
+        } finally {
+            data.recycle()
+            reply.recycle()
         }
-        data.recycle()
-        reply.recycle()
-        return Result.success(result)
+    }
+
+    private companion object {
+        const val TAG = "ShellExecutor"
     }
 
     private fun getProperty(property: String): Result<String?> {

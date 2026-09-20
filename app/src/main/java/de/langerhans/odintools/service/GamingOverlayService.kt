@@ -6,6 +6,7 @@ import android.os.IBinder
 import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.overlay.QuickAccessOverlay
+import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import javax.inject.Inject
@@ -15,6 +16,12 @@ class GamingOverlayService : Service() {
 
     @Inject
     lateinit var prefs: SharedPrefsRepo
+
+    // Mesmo singleton usado pelo MainViewModel e pelo ForegroundAppWatcherService: o overlay
+    // deixa de instanciar o seu próprio PerformanceManager (ver QuickAccessContent) e passa a
+    // partilhar este, para que não existam dois daemons de hardware a competir entre si.
+    @Inject
+    lateinit var performanceManager: PerformanceManager
 
     private var overlay: QuickAccessOverlay? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -28,7 +35,7 @@ class GamingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        overlay = QuickAccessOverlay(this, prefs)
+        overlay = QuickAccessOverlay(this, prefs, performanceManager)
 
         scope.launch {
             toggleOverlayFlow.collect {

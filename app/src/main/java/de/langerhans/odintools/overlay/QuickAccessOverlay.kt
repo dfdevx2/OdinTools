@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.getSystemService
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.tools.hardware.LosslessManager
+import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.ui.theme.AvailableThemes
 import de.langerhans.odintools.ui.theme.getResolvedTheme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,10 @@ import kotlin.math.abs
 
 class QuickAccessOverlay(
     private val context: Context,
-    private val prefs: SharedPrefsRepo
+    private val prefs: SharedPrefsRepo,
+    // Injetado a partir do GamingOverlayService (Hilt), para partilhar o MESMO daemon de
+    // hardware que o resto da app usa, em vez de o overlay criar o seu próprio motor paralelo.
+    private val performanceManager: PerformanceManager
 ) {
     private val windowManager = context.getSystemService<WindowManager>()
     private val main = Handler(Looper.getMainLooper())
@@ -63,6 +67,7 @@ class QuickAccessOverlay(
                     theme = currentTheme,
                     prefs = prefs,
                     isDllReady = isDllReady,
+                    performanceManager = performanceManager,
                     onExpand = { setExpanded(true) },
                     onClose = { setExpanded(false) }
                 )

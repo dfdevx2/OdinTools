@@ -59,13 +59,7 @@ class ForegroundAppWatcherService : AccessibilityService() {
 
         // 2. Ventoinha baseada no modelo FanMode
         val fanModeValue = if (hasOverride) prefs.getPerAppFanMode(pkg, prefs.fanMode) else prefs.fanMode
-        val fanModeObj = when(fanModeValue) {
-            1 -> FanMode.Silent
-            4 -> FanMode.Smart
-            5 -> FanMode.Sport
-            else -> FanMode.Stock
-        }
-        performanceManager.applyFanMode(fanModeObj)
+        performanceManager.applyFanMode(FanMode.fromSettingsValue(fanModeValue))
 
         // 3. Gráficos, SGSR, LSFG e ReShade
         val sgsr = if (hasOverride) prefs.getPerAppSgsr(pkg, prefs.globalSgsrEnabled) else prefs.globalSgsrEnabled

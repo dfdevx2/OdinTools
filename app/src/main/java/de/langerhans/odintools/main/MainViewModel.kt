@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.data.SharedPrefsRepo
+import de.langerhans.odintools.models.FanMode
 import de.langerhans.odintools.service.GamingOverlayService
 import de.langerhans.odintools.tools.DeviceType.ODIN2
 import de.langerhans.odintools.tools.DeviceUtils
@@ -101,7 +102,7 @@ class MainViewModel @Inject constructor(
 
     fun updateOverlayPanelOpacity(opacity: Float) { prefs.overlayPanelOpacity = opacity; _uiState.update { it.copy(overlayPanelOpacity = opacity) } }
     fun updateUseRootTarget(enabled: Boolean) { prefs.useRootTarget = enabled; _uiState.update { it.copy(useRootTarget = enabled) } }
-    fun updateFanMode(mode: Int) { prefs.fanMode = mode; _uiState.update { it.copy(fanMode = mode) }; runCatching { executor.setIntSystemSetting("fan_mode", mode) } }
+    fun updateFanMode(mode: Int) { prefs.fanMode = mode; _uiState.update { it.copy(fanMode = mode) }; performanceManager.applyFanMode(FanMode.fromSettingsValue(mode)) }
     fun updateLimitMode(mode: String) { _uiState.update { it.copy(activeLimitMode = mode) } }
     fun updateTdp(watts: Float) { _uiState.update { it.copy(tdpValue = watts) }; performanceManager.applyDynamicTdp(watts) }
     fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) { _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }; performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong()) }

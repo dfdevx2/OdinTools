@@ -4,14 +4,15 @@ import de.langerhans.odintools.tools.ShellExecutor
 
 sealed class FanMode(
     val id: String,
+    val shortLabel: String,
     val settingsValue: Int,
 ) {
     // Mapeamento dos valores de sistema originais para os nossos novos perfis da UI
-    data object Silent : FanMode("Silent (Silencioso)", 1)
-    data object Smart : FanMode("Smart (Balanceado)", 4)
-    data object Sport : FanMode("Sport (Desempenho Máximo)", 5)
-    data object Stock : FanMode("Stock (Padrão)", -1) // -1 indica que devolveremos o controle ao sistema padrão
-    data object Unknown : FanMode("unknown", -1)
+    data object Silent : FanMode("Silent (Silencioso)", "Silent", 1)
+    data object Smart : FanMode("Smart (Balanceado)", "Smart", 4)
+    data object Sport : FanMode("Sport (Desempenho Máximo)", "Sport", 5)
+    data object Stock : FanMode("Stock (Padrão)", "Stock", -1) // -1 indica que devolveremos o controle ao sistema padrão
+    data object Unknown : FanMode("unknown", "unknown", -1)
 
     fun enable(executor: ShellExecutor) {
         // Envia o valor exato para o sistema (se não for Stock/Unknown)
@@ -22,6 +23,18 @@ sealed class FanMode(
 
     companion object {
         const val FAN_MODE = "fan_mode"
+
+        /**
+         * Modos selecionáveis pelo utilizador, na ordem em que devem aparecer na UI. Usar esta
+         * lista em vez de índices "0, 1, 2" escritos à mão em cada ecrã evita a divergência que
+         * foi encontrada na auditoria: o Settings, o overlay e o [ForegroundAppWatcherService]
+         * usavam CADA UM o seu próprio mapeamento de números para modos de ventoinha, pelo que um
+         * modo escolhido num ecrã podia ser reinterpretado como outro (ou como "Stock") assim que
+         * o serviço de acessibilidade reaplicava os perfis ao trocar de app.
+         */
+        val selectable: List<FanMode> = listOf(Silent, Smart, Sport)
+
+        fun fromSettingsValue(value: Int): FanMode = selectable.find { it.settingsValue == value } ?: Stock
 
         // Função para converter o texto clicado na tela de volta para um comando do hardware
         fun fromString(profileName: String): FanMode {
