@@ -33,7 +33,7 @@ fun QuickAccessContent(
     onClose: () -> Unit
 ) {
     val currentWidth by animateDpAsState(
-        targetValue = if (isExpanded) 380.dp else 26.dp,
+        targetValue = if (isExpanded) 390.dp else 26.dp,
         animationSpec = tween(250),
         label = "widthAnim"
     )
@@ -58,12 +58,12 @@ fun QuickAccessContent(
                 )
             }
         } else {
-            // Adjustable Slim Handle Pill
+            val handleOpacity: Float = prefs.overlayHandleOpacity.coerceIn(0.1f, 1.0f)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
-                    .background(theme.primary.copy(alpha = 0.5f))
+                    .background(theme.primary.copy(alpha = handleOpacity))
                     .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                     .clickable { onExpand() },
                 contentAlignment = Alignment.Center
@@ -72,7 +72,7 @@ fun QuickAccessContent(
                     modifier = Modifier
                         .width(2.dp)
                         .height(30.dp)
-                        .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(50))
                 )
             }
         }
@@ -86,16 +86,19 @@ private fun QuickAccessPanel(
     isDllReady: Boolean,
     onClose: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Shaders/ReShade, 1: Upscaling (SGSR/LSFG), 2: Performance
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     var reshadeProfile by remember { mutableStateOf(prefs.reshadeProfile) }
     var sgsrEnabled by remember { mutableStateOf(prefs.globalSgsrEnabled) }
-    val sgsrMode = prefs.sgsrMode
+    var sgsrMode by remember { mutableStateOf(prefs.sgsrMode) }
 
     var lsfgEnabled by remember { mutableStateOf(prefs.globalLsfgEnabled) }
     var lsfgMultiplier by remember { mutableStateOf(prefs.lsfgMultiplier) }
-    val lsfgPacing = prefs.lsfgFramePacing
-    var showFps by remember { mutableStateOf(prefs.showFpsOverlay) }
+    val lsfgPacing: Boolean = prefs.lsfgFramePacing
+
+    var tdpValue by remember { mutableFloatStateOf(15f) }
+    var cpuPerfClock by remember { mutableFloatStateOf(3530f) }
+    var gpuClock by remember { mutableFloatStateOf(1100f) }
 
     Column(
         modifier = Modifier
@@ -103,7 +106,6 @@ private fun QuickAccessPanel(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -130,7 +132,6 @@ private fun QuickAccessPanel(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Navigation Tabs (Shaders | Upscaling | Performance)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -139,7 +140,7 @@ private fun QuickAccessPanel(
                 .padding(4.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val tabs = listOf("Shaders", "Upscaling", "Performance")
+            val tabs: List<String> = listOf("Shaders", "Upscaling", "Performance")
             tabs.forEachIndexed { index, title ->
                 val isSelected = selectedTab == index
                 Box(
@@ -165,11 +166,10 @@ private fun QuickAccessPanel(
 
         when (selectedTab) {
             0 -> {
-                // Tab 0: Vulkan ReShade & Post-FX Profiles (All 21 Winlator Profiles)
                 Text(text = "VULKAN POST-FX & RESHADE", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val allProfiles = listOf(
+                val allProfiles: List<String> = listOf(
                     "Native", "Vibrant", "Cinema", "Retro", "HDR Boost",
                     "Vibrance", "Curves", "CAS Lite", "Technicolor", "Levels",
                     "Game Clarity", "Cinematic", "Vivid", "Competitive",
@@ -204,8 +204,7 @@ private fun QuickAccessPanel(
                 }
             }
             1 -> {
-                // Tab 1: Upscaling (SGSR & Lossless Scaling LSFG)
-                Text(text = "SNAPDRAGON SUPER RESOLUTION", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(text = "SNAPDRAGON SUPER RESOLUTION (SGSR)", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
@@ -227,6 +226,30 @@ private fun QuickAccessPanel(
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
                     )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "Modo SGSR", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val sgsrModes: List<String> = listOf("Quality", "Balanced", "Performance", "Ultra")
+                    for (mode in sgsrModes) {
+                        val isSel = sgsrMode == mode
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSel) theme.primary else theme.surface)
+                                .clickable {
+                                    sgsrMode = mode
+                                    prefs.sgsrMode = mode
+                                    VulkanNativeBridge.applySgsr(sgsrEnabled, mode)
+                                }
+                                .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = mode, color = Color.White, fontSize = 10.sp)
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -267,7 +290,8 @@ private fun QuickAccessPanel(
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(text = "Multiplicador", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    for (mult in listOf("2x", "3x", "4x")) {
+                                    val multipliers: List<String> = listOf("2x", "3x", "4x", "6x")
+                                    for (mult in multipliers) {
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(4.dp))
@@ -289,27 +313,51 @@ private fun QuickAccessPanel(
                 }
             }
             2 -> {
-                // Tab 2: Performance & TDP Profiles
-                Text(text = "PERFORMANCE PROFILES", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(text = "AUTOTDP & TDP LIMIT", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val perfProfiles = listOf("Power Save", "Balanced", "Triple A", "Stock")
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (profile in perfProfiles) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(theme.surface)
-                                .clickable {
-                                    // Direct trigger for performance profiles
-                                }
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = profile, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.surface)
+                        .padding(12.dp)
+                ) {
+                    Text(text = "TDP Limit: ${tdpValue.toInt()} W", color = theme.text, fontSize = 12.sp)
+                    Slider(
+                        value = tdpValue,
+                        onValueChange = { tdpValue = it },
+                        valueRange = 5f..25f,
+                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = "MANUAL UNDERCLOCK / CLOCKS", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.surface)
+                        .padding(12.dp)
+                ) {
+                    Text(text = "CPU Perf Cores: ${cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                    Slider(
+                        value = cpuPerfClock,
+                        onValueChange = { cpuPerfClock = it },
+                        valueRange = 1735f..3530f,
+                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Adreno GPU: ${gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                    Slider(
+                        value = gpuClock,
+                        onValueChange = { gpuClock = it },
+                        valueRange = 160f..1100f,
+                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                    )
                 }
             }
         }
