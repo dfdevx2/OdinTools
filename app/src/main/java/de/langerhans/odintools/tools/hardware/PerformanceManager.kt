@@ -15,20 +15,14 @@ class PerformanceManager @Inject constructor(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var hardwareJob: Job? = null
 
-    // Caminhos Sysfs (Snapdragon / Odin)
-    private val SYSFS_CPU_PERF_MAX = "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq"
-    private val SYSFS_CPU_PRIME_MAX = "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
+    private val commandBuilder = PerformanceCommandBuilder()
     private val SYSFS_GPU_MAX = "/sys/class/kgsl/kgsl-3d0/max_gpuclk"
 
-    private val PRIME_MAX_KHZ = 4320000L
-    private val PRIME_MIN_KHZ = 2246000L
-    private val PERF_MAX_KHZ = 3530000L
-    private val PERF_MIN_KHZ = 1735000L
     private val GPU_MAX_HZ = 1100000000L
     private val GPU_MIN_HZ = 160000000L
 
-    private var targetPerf = PERF_MAX_KHZ
-    private var targetPrime = PRIME_MAX_KHZ
+    private var targetPerfRatio = 1.0f
+    private var targetPrimeRatio = 1.0f
     private var targetGpu = GPU_MAX_HZ
 
     private var isAutoTdp = false
@@ -44,10 +38,8 @@ class PerformanceManager @Inject constructor(
             while (isActive) {
                 if (isAutoTdp) {
                     calculateAutoTdpStep()
-                    writeLimitsToSysfsAtomic()
-                } else {
-                    writeLimitsToSysfsAtomic()
                 }
+                writeLimitsToSysfs()
                 delay(1000)
             }
         }
@@ -58,45 +50,83 @@ class PerformanceManager @Inject constructor(
         if (currentPowerDraw <= 0f) return
 
         if (currentPowerDraw > targetWatts + 0.5f) {
-            targetPerf = (targetPerf * 0.95).toLong().coerceAtLeast(PERF_MIN_KHZ)
-            targetPrime = (targetPrime * 0.95).toLong().coerceAtLeast(PRIME_MIN_KHZ)
+            targetPerfRatio = (targetPerfRatio * 0.95f).coerceAtLeast(0.4f)
+            targetPrimeRatio = (targetPrimeRatio * 0.95f).coerceAtLeast(0.4f)
             targetGpu = (targetGpu * 0.95).toLong().coerceAtLeast(GPU_MIN_HZ)
         } else if (currentPowerDraw < targetWatts - 0.5f) {
-            targetPerf = (targetPerf * 1.05).toLong().coerceAtMost(PERF_MAX_KHZ)
-            targetPrime = (targetPrime * 1.05).toLong().coerceAtMost(PRIME_MAX_KHZ)
+            targetPerfRatio = (targetPerfRatio * 1.05f).coerceAtMost(1.0f)
+            targetPrimeRatio = (targetPrimeRatio * 1.05f).coerceAtMost(1.0f)
             targetGpu = (targetGpu * 1.05).toLong().coerceAtMost(GPU_MAX_HZ)
         }
     }
 
     /**
-     * CORREÇÃO CRUCIAL: O comando `su -c` do Android falha com quebras de linha (`\n`).
-     * Unir tudo com `&&` numa string linear garante que a permissão e a escrita ocorram com sucesso.
+     * Varredura dinâmica de políticas idêntica à do Pulse para suportar qualquer variante de SoC do Odin.
      */
-    private fun writeLimitsToSysfsAtomic() {
-        val cmd = buildString {
-            append("chmod 666 $SYSFS_CPU_PERF_MAX && echo$targetPerf > $SYSFS_CPU_PERF_MAX && chmod 444$SYSFS_CPU_PERF_MAX && ")
-            append("chmod 666 $SYSFS_CPU_PRIME_MAX && echo$targetPrime > $SYSFS_CPU_PRIME_MAX && chmod 444$SYSFS_CPU_PRIME_MAX && ")
-            append("chmod 666 $SYSFS_GPU_MAX && echo$targetGpu > $SYSFS_GPU_MAX && chmod 444$SYSFS_GPU_MAX")
+    private fun getCpuPolicies(): List<Pair<String, Long>> {
+        val policies = mutableListOf<Pair<String, Long>>()
+        try {
+            val dir = File("/sys/devices/system/cpu/cpufreq")
+            dir.listFiles()?.filter { it.isDirectory && it.name.startsWith("policy") }?.forEach { policyDir ->
+                val maxFreqFile = File(policyDir, "cpuinfo_max_freq")
+                val scalingMaxFile = File(policyDir, "scaling_max_freq")
+                val targetFile = if (maxFreqFile.exists()) maxFreqFile else scalingMaxFile
+                if (targetFile.exists()) {
+                    val maxFreq = targetFile.readText().trim().toLongOrNull() ?: 3000000L
+                    policies.add(policyDir.absolutePath to maxFreq)
+                }
+            }
+        } catch (e: Exception) {
+            // Ignora falhas de I/O
         }
-        executor.executeAsRoot(cmd)
+        return policies.sortedBy { it.second } // Ordena do menor para o maior (Perf -> Prime)
+    }
+
+    private fun writeLimitsToSysfs() {
+        val policies = getCpuPolicies()
+        if (policies.isEmpty()) return
+
+        val selectedValues = mutableMapOf<Int, Long>()
+        policies.forEachIndexed { index, (_, maxFreq) ->
+            val isPrime = index == policies.lastIndex
+            val ratio = if (isPrime) targetPrimeRatio else targetPerfRatio
+            selectedValues[index] = (maxFreq * ratio).toLong().coerceAtMost(maxFreq)
+        }
+
+        val gpuPath = if (File(SYSFS_GPU_MAX).exists()) SYSFS_GPU_MAX else null
+        val script = commandBuilder.buildApplyScript(
+            cpuPolicies = policies,
+            selectedValues = selectedValues,
+            isReset = false,
+            gpuPath = gpuPath,
+            gpuValue = targetGpu,
+        )
+
+        executor.executeAsRoot(script)
     }
 
     fun applyDynamicTdp(watts: Float) {
         isAutoTdp = true
         targetWatts = watts.coerceIn(3f, 25f)
-        val ratio = (watts / 25f).coerceIn(0.2f, 1.0f)
-        targetPerf = (PERF_MAX_KHZ * ratio).toLong().coerceAtLeast(PERF_MIN_KHZ)
-        targetPrime = (PRIME_MAX_KHZ * ratio).toLong().coerceAtLeast(PRIME_MIN_KHZ)
+        val ratio = (watts / 25f).coerceIn(0.3f, 1.0f)
+        targetPerfRatio = ratio
+        targetPrimeRatio = ratio
         targetGpu = (GPU_MAX_HZ * ratio).toLong().coerceAtLeast(GPU_MIN_HZ)
-        writeLimitsToSysfsAtomic()
+        writeLimitsToSysfs()
     }
 
     fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long) {
         isAutoTdp = false
-        targetPerf = perfClockKHz.coerceIn(PERF_MIN_KHZ, PERF_MAX_KHZ)
-        targetPrime = primeClockKHz.coerceIn(PRIME_MIN_KHZ, PRIME_MAX_KHZ)
+        val policies = getCpuPolicies()
+        if (policies.isNotEmpty()) {
+            val maxPerf = policies.getOrNull(policies.lastIndex - 1)?.second ?: 3530000L
+            val maxPrime = policies.lastOrNull()?.second ?: 4320000L
+
+            targetPerfRatio = (perfClockKHz.toFloat() / maxPerf.toFloat()).coerceIn(0.3f, 1.0f)
+            targetPrimeRatio = (primeClockKHz.toFloat() / maxPrime.toFloat()).coerceIn(0.3f, 1.0f)
+        }
         targetGpu = gpuClockHz.coerceIn(GPU_MIN_HZ, GPU_MAX_HZ)
-        writeLimitsToSysfsAtomic()
+        writeLimitsToSysfs()
     }
 
     fun applyFanMode(fanMode: FanMode) {
