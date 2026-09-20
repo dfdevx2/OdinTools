@@ -49,9 +49,6 @@ class MainViewModel @Inject constructor(
         settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
-        executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
-        executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
-
         _uiState.update {
             MainUiModel(
                 deviceType = deviceType,
@@ -99,9 +96,29 @@ class MainViewModel @Inject constructor(
 
         soundManager.startBackgroundMusicIfEnabled()
 
-        graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
-        graphicsLayerManager.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
-        graphicsLayerManager.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+        // BUG (Parte 5 -> corrigido aqui): a app deixava de sair da splash/logo depois desta
+        // ronda. Causa: `VulkanNativeBridge` (JNI, chamada de função em processo, quase
+        // instantânea) foi substituído por `GraphicsLayerManager` (cada chamada faz um `exec`
+        // root de VERDADE via `ShellExecutor`, arrancando um processo `su`/PServerBinder). Isto
+        // aqui no `init {}` de uma Hilt ViewModel corre na thread principal, na criação da
+        // Activity -- e passámos a fazer ~9 `exec` root SÍNCRONOS em sequência (limpar a camada,
+        // + LSFG + SGSR + ReShade) bem no arranque da app, antes do primeiro frame. Cada `exec`
+        // root pode demorar dezenas a centenas de ms (ou travar de vez se pedir confirmação de
+        // root); em sequência e na UI thread isso é o suficiente para nunca soltar a splash
+        // screen -- exatamente o sintoma "fica preso no logo". Motivo de nunca ter acontecido
+        // antes: os dois `setprop` de limpeza da camada Vulkan já existiam e sempre correram
+        // aqui, mas só dois execs rápidos não é o bastante para travar visivelmente; a soma dos
+        // 7 novos é que estourou. Corrigido: tudo isto passa para uma coroutine em
+        // `Dispatchers.IO`, fora da thread principal -- a UI aparece imediatamente e a
+        // configuração da camada Vulkan/ReShade/SGSR/LSFG chega ao sistema uma fração de segundo
+        // depois, sem bloquear nada.
+        viewModelScope.launch(Dispatchers.IO) {
+            executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
+            executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
+            graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
+            graphicsLayerManager.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
+            graphicsLayerManager.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+        }
 
         if (prefs.overlayEnabled) {
             context.startService(Intent(context, GamingOverlayService::class.java))
