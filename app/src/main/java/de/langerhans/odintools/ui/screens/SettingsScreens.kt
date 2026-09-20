@@ -320,7 +320,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                 ) { targetTab ->
                     when (targetTab) {
                         0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
-                        1 -> DisplayPanel(finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                        1 -> DisplayPanel(viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
                         2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
                         3 -> SystemPanel(
                             theme = finalTheme, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage, isEn = isEn,
@@ -714,7 +714,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // --- O BLOCO FALTANTE DOS OVERRIDES POR JOGO DEVOLVIDO AO SEU LUGAR ---
         ConsoleSectionHeader(if (isEn) "Game Rules & Per-App Overrides" else "Regras por Jogo e Aplicativo", theme)
         ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific TDP & clock rules for emulators" else "Vincule perfis de TDP, Clocks, Tela e Fan a emuladores específicos", theme, playClick = playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -764,17 +763,15 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 }
 
 @Composable
-fun DisplayPanel(theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
+fun DisplayPanel(viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
 
-    // States ReShade & Colors
     var satValue by rememberSaveable { mutableFloatStateOf(1.0f) }
     var tempValue by rememberSaveable { mutableFloatStateOf(6500f) }
     var expandedProfile by rememberSaveable { mutableStateOf(false) }
     val profiles = if (isEn) listOf("Native", "Vibrant", "Cinema", "Retro") else listOf("Nativo", "Vibrante", "Cinema", "Retrô")
     var selectedProfile by rememberSaveable { mutableStateOf(profiles[0]) }
 
-    // States Lossless Scaling (LSFG)
     var lsfgEnabled by rememberSaveable { mutableStateOf(false) }
     var lsfgMultiplier by rememberSaveable { mutableStateOf("2x") }
     var expandedLsfgMult by rememberSaveable { mutableStateOf(false) }
@@ -782,7 +779,6 @@ fun DisplayPanel(theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
     var lsfgFramePacing by rememberSaveable { mutableStateOf(true) }
     var lsfgQuality by rememberSaveable { mutableFloatStateOf(1.0f) }
 
-    // States Snapdragon Super Resolution (SGSR)
     var sgsrEnabled by rememberSaveable { mutableStateOf(false) }
     var sgsrMode by rememberSaveable { mutableStateOf("Quality") }
     var expandedSgsrMode by rememberSaveable { mutableStateOf(false) }
@@ -865,10 +861,26 @@ fun DisplayPanel(theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
         ConsoleCard(if (isEn) "Manual Adjustments" else "Ajustes Manuais", if (isEn) "Saturation & Temperature" else "Saturação e Temperatura", theme, playClick = null) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text((if (isEn) "Saturation: " else "Saturação: ") + "${"%.1f".format(satValue)}", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = satValue, onValueChange = { satValue = it }, valueRange = 0.0f..2.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Slider(
+                    value = satValue,
+                    onValueChange = {
+                        satValue = it
+                        viewModel.saveSaturation(it)
+                    },
+                    valueRange = 0.0f..2.0f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text((if (isEn) "Temperature: " else "Temperatura: ") + "${tempValue.toInt()}K", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = tempValue, onValueChange = { tempValue = it }, valueRange = 4000f..9000f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Slider(
+                    value = tempValue,
+                    onValueChange = {
+                        tempValue = it
+                        viewModel.saveTemperature(it)
+                    },
+                    valueRange = 4000f..9000f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
             }
         }
     }
@@ -916,6 +928,14 @@ fun SystemPanel(
         uri?.let { onCustomUriSelected(it, if (isEn) "Custom Video (.MP4)" else "Vídeo Personalizado (.MP4)") }
     }
 
+    // Seletor para a Lossless.dll
+    val losslessPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            // Aqui a DLL é selecionada e pronta para ser processada pelo LosslessManager
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader(if (isEn) "Language & Region" else "Idioma e Região", theme)
         ConsoleCard(if (isEn) "System Language" else "Idioma do Sistema", currentLanguage, theme, playClick = { expandedLang = true; playClick() }) {
@@ -939,6 +959,24 @@ fun SystemPanel(
                 ConsoleToggle(checked = amoledBlack, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAmoledToggle(it); playClick() })
             }
         }
+
+        // --- ADIÇÃO DO MOTOR LOSSLESS SCALING (IMPORTAÇÃO DA DLL) ---
+        ConsoleSectionHeader(if (isEn) "Lossless Scaling Engine" else "Motor Lossless Scaling", theme)
+        ConsoleCard(if (isEn) "Lossless.dll Integration" else "Integração do Lossless.dll", if (isEn) "Required for Frame Generation" else "Necessário para Geração de Quadros", theme, playClick = playClick) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Button(
+                    onClick = {
+                        losslessPickerLauncher.launch("*/*")
+                        playClick()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isEn) "Import Lossless.dll from Steam..." else "Importar Lossless.dll da Steam...", fontFamily = theme.fontFamily, color = Color.White)
+                }
+            }
+        }
+
         ConsoleSectionHeader(if (isEn) "Audio Mixer" else "Mixer de Audio", theme)
         ConsoleCard(if (isEn) "Background Music (BGM)" else "Música de Fundo (BGM)", "Volume: ${(bgmVolume * 100).toInt()}%", theme, playClick = null) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {

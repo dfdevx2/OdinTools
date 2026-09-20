@@ -18,6 +18,7 @@ import de.langerhans.odintools.tools.DeviceType.ODIN2
 import de.langerhans.odintools.tools.DeviceUtils
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.tools.ShellExecutor
+import de.langerhans.odintools.tools.hardware.DisplayManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,7 +35,8 @@ class MainViewModel @Inject constructor(
     private val executor: ShellExecutor,
     private val settings: SettingsRepo,
     private val prefs: SharedPrefsRepo,
-    private val performanceManager: PerformanceManager
+    private val performanceManager: PerformanceManager,
+    private val displayManager: DisplayManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiModel())
@@ -74,7 +76,6 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(performanceProfile = profile) }
         when (profile) {
             "Power Save" -> {
-                // Força os sliders para o visual correto do Power Save
                 _uiState.update { it.copy(tdpValue = 5f, cpuPerfClock = 1735f, cpuPrimeClock = 2246f, gpuClock = 160f) }
                 performanceManager.applyAbsoluteClocks(1735000L, 2246000L, 160000000L)
             }
@@ -94,13 +95,10 @@ class MainViewModel @Inject constructor(
                 val currentTdp = _uiState.value.tdpValue
                 performanceManager.applyDynamicTdp(currentTdp)
             }
-            else -> {
-                // Perfil Customizado Salvo pelo Usuário (Futuro carregamento de DB, aplica estado atual por hora)
-            }
+            else -> {}
         }
     }
 
-    // Intervenção manual sempre muda o perfil para "Personalizado"
     fun updateTdp(watts: Float, isManualAction: Boolean = true) {
         _uiState.update {
             it.copy(
@@ -131,8 +129,7 @@ class MainViewModel @Inject constructor(
 
     fun updateUseRoot(useRoot: Boolean) {
         _uiState.update { it.copy(useRootTarget = useRoot) }
-        performanceManager.isKsuModuleActive = useRoot // Liga/Desliga o overhead do loop
-        // Se ativou o modo Root num perfil de clock fixo, aplicamos uma vez pra garantir
+        performanceManager.isKsuModuleActive = useRoot
         if (useRoot && _uiState.value.performanceProfile != "Smart") {
             performanceManager.applyAbsoluteClocks(
                 (_uiState.value.cpuPerfClock * 1000).toLong(),
@@ -234,10 +231,17 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(showSaturationDialog = false) }
     }
 
+    // Atualizado para chamar o DisplayManager
     fun saveSaturation(newValue: Float) {
         prefs.saturationOverride = newValue
         settings.setSfSaturation(newValue)
+        displayManager.applySaturation(newValue)
         _uiState.update { it.copy(showSaturationDialog = false) }
+    }
+
+    // Nova função de temperatura
+    fun saveTemperature(newValue: Float) {
+        displayManager.applyTemperature(newValue)
     }
 
     fun updateVibrationPreference(newValue: Boolean) {
