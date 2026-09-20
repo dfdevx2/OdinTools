@@ -506,7 +506,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
         ConsoleSectionHeader(if (isEn) "Engine & Optimization" else "Motor e Otimização", theme)
-        // Passar playClick permite clicar no cartão como um botão e roubar o foco
         ConsoleCard(if (isEn) "KSU Module Integration" else "Módulo KSU", if (isEn) "Toggle if Odin Hub KSU module is installed" else "Ative se instalou o Módulo KSU (Remove overhead)", theme, playClick = playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if (uiState.useRootTarget) "Módulo KSU (Sem Overhead)" else "Modo Pulse (Loop PServer)", color = theme.text, fontFamily = theme.fontFamily)
@@ -524,7 +523,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             selectedFanProfileName = profile
                             expandedFanProfile = false
-                            // Gatilho reativado e comunicando com o ViewModel que agora possui a fun setFanMode()
                             viewModel.setFanMode(profile)
                             playClick()
                         }
@@ -577,7 +575,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // AQUI ESTÁ A CORREÇÃO DE NAVEGAÇÃO DOS SLIDERS: playClick = null permite que o D-Pad desça para os Sliders!
         ConsoleCard(
             title = if (isEn) "Dynamic AutoTDP Control" else "Controle Dinâmico AutoTDP",
             subtitle = if (isEn) "Monitors FPS and automatically trims TDP. Disabled when Clock Mode is active." else "Monitora o FPS e ajusta o TDP dinamicamente. Fica desativado se o Modo Clock estiver ativo.",
@@ -646,11 +643,15 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             selectedClockProfileName = profile
+
+                            // Os novos perfis ajustados: Mantendo GPU sempre em 1100 MHz
                             if (profile.contains("Power Save")) {
-                                viewModel.updateManualClocks(2000f, 2400f, 500f)
+                                viewModel.updateManualClocks(1735f, 2246f, 1100f)
                             } else if (profile.contains("Balanced")) {
-                                viewModel.updateManualClocks(2800f, 3400f, 750f)
+                                viewModel.updateManualClocks(2400f, 3081f, 1100f)
                             } else if (profile.contains("Triple A")) {
+                                viewModel.updateManualClocks(3081f, 3880f, 1100f)
+                            } else if (profile.contains("Stock")) {
                                 viewModel.updateManualClocks(3530f, 4320f, 1100f)
                             }
                             expandedClockProfile = false
@@ -670,7 +671,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // Cartão com múltiplos sliders: playClick = null permite foco do D-Pad interno!
         ConsoleCard(
             title = if (isEn) "Discrete Manual Clocks Slider" else "Sliding de Frequência por Cluster",
             subtitle = if (isEn) "Individual precise steps per architecture" else "Passos discretos otimizados por arquitetura",
