@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import dagger.hilt.android.AndroidEntryPoint
+import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.models.FanMode
 import de.langerhans.odintools.tools.hardware.PerformanceManager
@@ -15,6 +16,12 @@ class ForegroundAppWatcherService : AccessibilityService() {
 
     @Inject lateinit var prefs: SharedPrefsRepo
     @Inject lateinit var performanceManager: PerformanceManager
+
+    // Fonte única de verdade das regras por jogo (ver AppOverrideRepository). Substitui as
+    // leituras diretas de SharedPrefs (`prefs.getPerApp*`) que existiam aqui antes: aquelas
+    // chaves eram escritas SÓ pelo overlay, e nunca refletiam o que era configurado na aba
+    // Performance -> Per-App Overrides (que só gravava na tabela Room, nunca lida aqui).
+    @Inject lateinit var overrideRepository: AppOverrideRepository
 
     private var currentApp = ""
 
@@ -43,36 +50,42 @@ class ForegroundAppWatcherService : AccessibilityService() {
     }
 
     private fun applySteamDeckLogic(pkg: String) {
-        val hasOverride = prefs.hasAppOverride(pkg)
-        val limitMode = prefs.activeLimitMode
+        // Lê o cache em memória do repositório (nunca bloqueia este thread em I/O de disco).
+        // `override` é null quando o jogo não tem regra própria -- nesse caso cai sempre para
+        // os valores globais, exatamente como antes.
+        val override = overrideRepository.get(pkg)
 
-        // 1. TDP ou Clocks
+        // 1. TDP ou Clocks -- MUTUAMENTE EXCLUSIVOS. limitMode é por jogo (override?.limitMode);
+        // sem override, usa o modo global (prefs.activeLimitMode), igual ao ecrã de Settings.
+        val limitMode = override?.limitMode ?: prefs.activeLimitMode
         if (limitMode == "TDP") {
-            val tdp = if (hasOverride) prefs.getPerAppTdp(pkg, prefs.tdpValue) else prefs.tdpValue
+            val tdp = override?.tdpWatts ?: prefs.tdpValue
             performanceManager.applyDynamicTdp(tdp)
         } else {
-            val perf = if (hasOverride) prefs.getPerAppPerfClock(pkg, prefs.cpuPerfClock) else prefs.cpuPerfClock
-            val prime = if (hasOverride) prefs.getPerAppPrimeClock(pkg, prefs.cpuPrimeClock) else prefs.cpuPrimeClock
-            val gpu = if (hasOverride) prefs.getPerAppGpuClock(pkg, prefs.gpuClock) else prefs.gpuClock
-            performanceManager.applyAbsoluteClocks((perf * 1000).toLong(), (prime * 1000).toLong(), (gpu * 1000000).toLong())
+            val perfKHz = override?.perfClockKHz ?: (prefs.cpuPerfClock * 1000).toLong()
+            val primeKHz = override?.primeClockKHz ?: (prefs.cpuPrimeClock * 1000).toLong()
+            val gpuHz = override?.gpuClockHz ?: (prefs.gpuClock * 1_000_000).toLong()
+            performanceManager.applyAbsoluteClocks(perfKHz, primeKHz, gpuHz)
         }
 
         // 2. Ventoinha baseada no modelo FanMode
-        val fanModeValue = if (hasOverride) prefs.getPerAppFanMode(pkg, prefs.fanMode) else prefs.fanMode
+        val fanModeValue = override?.fanSettingsValue ?: prefs.fanMode
         performanceManager.applyFanMode(FanMode.fromSettingsValue(fanModeValue))
 
         // 3. Gráficos, SGSR, LSFG e ReShade
-        val sgsr = if (hasOverride) prefs.getPerAppSgsr(pkg, prefs.globalSgsrEnabled) else prefs.globalSgsrEnabled
-        val sgsrMode = if (hasOverride) prefs.getPerAppSgsrMode(pkg, prefs.sgsrMode) else prefs.sgsrMode
+        val sgsr = override?.sgsrEnabled ?: prefs.globalSgsrEnabled
+        val sgsrMode = override?.sgsrMode ?: prefs.sgsrMode
         VulkanNativeBridge.applySgsr(sgsr, sgsrMode)
 
-        val lsfg = if (hasOverride) prefs.getPerAppLsfg(pkg, prefs.globalLsfgEnabled) else prefs.globalLsfgEnabled
-        val lsfgMult = if (hasOverride) prefs.getPerAppLsfgMult(pkg, prefs.lsfgMultiplier) else prefs.lsfgMultiplier
-        val lsfgPacing = if (hasOverride) prefs.getPerAppLsfgPacing(pkg, prefs.lsfgFramePacing) else prefs.lsfgFramePacing
+        val lsfg = override?.lsfgEnabled ?: prefs.globalLsfgEnabled
+        val lsfgMult = override?.lsfgMultiplier?.let { "${it}x" } ?: prefs.lsfgMultiplier
+        val lsfgPacing = override?.lsfgFramePacing ?: prefs.lsfgFramePacing
         VulkanNativeBridge.applyLsfg(lsfg, lsfgMult, lsfgPacing)
 
-        val reshade = if (hasOverride) prefs.getPerAppReshade(pkg, prefs.reshadeProfile) else prefs.reshadeProfile
-        VulkanNativeBridge.applyReshade(reshade, prefs.saturationOverride, prefs.temperatureOverride)
+        val reshade = override?.reshadeProfile ?: prefs.reshadeProfile
+        val saturation = override?.saturationOverride ?: prefs.saturationOverride
+        val temperature = override?.temperatureOverride ?: prefs.temperatureOverride
+        VulkanNativeBridge.applyReshade(reshade, saturation, temperature)
     }
 
     override fun onInterrupt() {}

@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import dagger.hilt.android.AndroidEntryPoint
+import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.overlay.QuickAccessOverlay
 import de.langerhans.odintools.tools.hardware.PerformanceManager
@@ -23,6 +24,10 @@ class GamingOverlayService : Service() {
     @Inject
     lateinit var performanceManager: PerformanceManager
 
+    // Mesma fonte única de verdade (Room) usada pelo ForegroundAppWatcherService.
+    @Inject
+    lateinit var overrideRepository: AppOverrideRepository
+
     private var overlay: QuickAccessOverlay? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -35,7 +40,7 @@ class GamingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        overlay = QuickAccessOverlay(this, prefs, performanceManager)
+        overlay = QuickAccessOverlay(this, prefs, performanceManager, overrideRepository)
 
         scope.launch {
             toggleOverlayFlow.collect {

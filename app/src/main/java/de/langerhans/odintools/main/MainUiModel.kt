@@ -48,5 +48,10 @@ data class MainUiModel(
     val overlayEnabled: Boolean = false,
     val overlayHandleOpacity: Float = 0.5f,
     val overlayHandleWidth: Int = 22,
-    val overlayPanelOpacity: Float = 0.95f
+    val overlayPanelOpacity: Float = 0.95f,
+
+    val bgmEnabled: Boolean = true,
+    val bgmVolume: Float = 0.5f,
+    val sfxEnabled: Boolean = true,
+    val sfxVolume: Float = 0.8f
 )

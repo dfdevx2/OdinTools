@@ -26,7 +26,10 @@ class DatabaseModule {
             AppDatabase::class.java,
             "app",
         )
-            .fallbackToDestructiveMigration() // Limpa os dados obsoletos e recria a tabela com as novas colunas
+            .addMigrations(AppDatabase.MIGRATION_4_5)
+            // Mantido como rede de segurança para saltos de versão sem migração explícita
+            // (ex: instalações muito antigas, v1-v3); a v4->v5 agora preserva os dados.
+            .fallbackToDestructiveMigration()
             .build()
     }
 }

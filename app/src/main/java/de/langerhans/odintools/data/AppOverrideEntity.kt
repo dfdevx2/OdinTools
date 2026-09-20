@@ -8,7 +8,21 @@ data class AppOverrideEntity(
     @PrimaryKey
     val packageName: String,
 
-    // Performance & Hardware
+    // Qual dos dois modos manda neste jogo: "TDP" ou "CLOCK". Mutuamente exclusivos --
+    // nunca aplicar os dois ao mesmo tempo (ver ForegroundAppWatcherService/QuickAccessContent).
+    val limitMode: String = "TDP",
+
+    // Valores REAIS aplicados ao hardware. tdpProfile/clockProfile/fanProfile (abaixo)
+    // continuam a existir só como o RÓTULO do preset escolhido (para mostrar na UI); antes
+    // desta migração eram os ÚNICOS campos e nunca eram resolvidos para números em lado
+    // nenhum -- o motor de hardware lia valores completamente diferentes do SharedPrefs.
+    val tdpWatts: Float? = null,
+    val perfClockKHz: Long? = null,
+    val primeClockKHz: Long? = null,
+    val gpuClockHz: Long? = null,
+    val fanSettingsValue: Int? = null,
+
+    // Rótulos do preset selecionado (apenas para exibição/subtítulo)
     val tdpProfile: String?,
     val clockProfile: String?,
     val fanProfile: String?,

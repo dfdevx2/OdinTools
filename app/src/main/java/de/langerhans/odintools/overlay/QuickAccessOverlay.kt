@@ -12,6 +12,7 @@ import android.view.WindowManager
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.getSystemService
+import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
@@ -25,7 +26,11 @@ class QuickAccessOverlay(
     private val prefs: SharedPrefsRepo,
     // Injetado a partir do GamingOverlayService (Hilt), para partilhar o MESMO daemon de
     // hardware que o resto da app usa, em vez de o overlay criar o seu próprio motor paralelo.
-    private val performanceManager: PerformanceManager
+    private val performanceManager: PerformanceManager,
+    // Mesma fonte única de verdade (Room) usada pelo ForegroundAppWatcherService e pela aba
+    // Performance -> Per-App Overrides, para que uma alteração feita aqui no overlay já
+    // reflita em ambos, e vice-versa.
+    private val overrideRepository: AppOverrideRepository
 ) {
     private val windowManager = context.getSystemService<WindowManager>()
     private val main = Handler(Looper.getMainLooper())
@@ -68,6 +73,7 @@ class QuickAccessOverlay(
                     prefs = prefs,
                     isDllReady = isDllReady,
                     performanceManager = performanceManager,
+                    overrideRepository = overrideRepository,
                     onExpand = { setExpanded(true) },
                     onClose = { setExpanded(false) }
                 )

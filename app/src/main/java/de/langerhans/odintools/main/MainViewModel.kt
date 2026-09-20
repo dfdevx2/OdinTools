@@ -15,6 +15,7 @@ import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.tools.ShellExecutor
 import de.langerhans.odintools.tools.hardware.DisplayManager
 import de.langerhans.odintools.tools.hardware.LosslessManager
+import de.langerhans.odintools.tools.SoundManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +33,8 @@ class MainViewModel @Inject constructor(
     private val prefs: SharedPrefsRepo,
     private val performanceManager: PerformanceManager,
     private val displayManager: DisplayManager,
-    private val losslessManager: LosslessManager
+    private val losslessManager: LosslessManager,
+    private val soundManager: SoundManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiModel())
@@ -81,9 +83,16 @@ class MainViewModel @Inject constructor(
                 overlayEnabled = prefs.overlayEnabled,
                 overlayHandleOpacity = prefs.overlayHandleOpacity,
                 overlayHandleWidth = prefs.overlayHandleWidth,
-                overlayPanelOpacity = prefs.overlayPanelOpacity
+                overlayPanelOpacity = prefs.overlayPanelOpacity,
+
+                bgmEnabled = prefs.bgmEnabled,
+                bgmVolume = prefs.bgmVolume,
+                sfxEnabled = prefs.sfxEnabled,
+                sfxVolume = prefs.sfxVolume
             )
         }
+
+        soundManager.startBackgroundMusicIfEnabled()
 
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
         VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
@@ -111,6 +120,15 @@ class MainViewModel @Inject constructor(
         prefs.saveCustomProfile(name, type, val1, val2, val3, val4)
         _uiState.update { it.copy(customProfiles = prefs.getAllCustomProfiles()) }
     }
+
+    // Música de fundo e efeitos sonoros da UI (ver SoundManager). O código que tocava estes
+    // sons foi perdido numa refatoração anterior da interface; os ficheiros em res/raw
+    // continuavam no projeto, só faltava quem os tocasse e os controlos persistentes.
+    fun playClickSound() = soundManager.playClick()
+    fun updateBgmEnabled(enabled: Boolean) { soundManager.setBgmEnabled(enabled); _uiState.update { it.copy(bgmEnabled = enabled) } }
+    fun updateBgmVolume(volume: Float) { soundManager.setBgmVolume(volume); _uiState.update { it.copy(bgmVolume = volume) } }
+    fun updateSfxEnabled(enabled: Boolean) { soundManager.setSfxEnabled(enabled); _uiState.update { it.copy(sfxEnabled = enabled) } }
+    fun updateSfxVolume(volume: Float) { soundManager.setSfxVolume(volume); _uiState.update { it.copy(sfxVolume = volume) } }
 
     fun updateThemeIndex(newIndex: Int) { prefs.selectedThemeIndex = newIndex; _uiState.update { it.copy(selectedThemeIndex = newIndex) } }
     fun updateAmoledBlack(enabled: Boolean) { prefs.useAmoledBlack = enabled; _uiState.update { it.copy(useAmoledBlack = enabled) } }

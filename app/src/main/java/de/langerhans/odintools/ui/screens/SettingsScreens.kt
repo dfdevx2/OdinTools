@@ -5,7 +5,6 @@ package de.langerhans.odintools.ui.screens
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.ImageDecoder
-import android.media.MediaPlayer
 import android.net.Uri
 import android.provider.Settings
 import android.view.KeyEvent
@@ -96,9 +95,9 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     val selectedCustomUri = selectedCustomUriString?.let { Uri.parse(it) }
     var selectedWallpaperName by rememberSaveable { mutableStateOf(if (isEn) "Preset 1" else "Predefinição 1") }
 
-    fun playSfx(resId: Int) {
-        runCatching { MediaPlayer.create(context, resId)?.apply { setVolume(0.8f, 0.8f); setOnCompletionListener { release() }; start() } }
-    }
+    // Delega no SoundManager (respeita o volume/on-off configurados na aba Sistema) em vez de
+    // criar um MediaPlayer novo com volume fixo (0.8f) a cada toque, como acontecia antes.
+    fun playSfx(@Suppress("UNUSED_PARAMETER") resId: Int) = viewModel.playClickSound()
 
     if (showWelcomeSetup) {
         OdinHubWelcomeScreen(
@@ -158,7 +157,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                                 0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
                                 1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
                                 2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
+                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }, bgmEnabled = uiState.bgmEnabled, bgmVolume = uiState.bgmVolume, sfxEnabled = uiState.sfxEnabled, sfxVolume = uiState.sfxVolume, onBgmToggle = { viewModel.updateBgmEnabled(it) }, onBgmVolume = { viewModel.updateBgmVolume(it) }, onSfxToggle = { viewModel.updateSfxEnabled(it) }, onSfxVolume = { viewModel.updateSfxVolume(it) }) { playSfx(R.raw.sfx_select) }
                             }
                         }
                     }
@@ -179,7 +178,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                                 0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
                                 1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
                                 2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
+                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }, bgmEnabled = uiState.bgmEnabled, bgmVolume = uiState.bgmVolume, sfxEnabled = uiState.sfxEnabled, sfxVolume = uiState.sfxVolume, onBgmToggle = { viewModel.updateBgmEnabled(it) }, onBgmVolume = { viewModel.updateBgmVolume(it) }, onSfxToggle = { viewModel.updateSfxEnabled(it) }, onSfxVolume = { viewModel.updateSfxVolume(it) }) { playSfx(R.raw.sfx_select) }
                             }
                         }
                     }
@@ -583,7 +582,10 @@ fun SystemPanel(
     currentThemeIndex: Int, currentLanguage: String, onThemeChange: (Int) -> Unit, onLanguageChange: (String) -> Unit,
     onAmoledToggle: (Boolean) -> Unit, onLiveWallpaperTypeChange: (String) -> Unit, onBlurToggle: (Boolean) -> Unit,
     onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit, onPresetStaticSelected: (Int, String) -> Unit,
-    onPresetVideoSelected: () -> Unit, onCustomUriSelected: (Uri, String) -> Unit, onReplayBoot: () -> Unit, playClick: () -> Unit
+    onPresetVideoSelected: () -> Unit, onCustomUriSelected: (Uri, String) -> Unit, onReplayBoot: () -> Unit,
+    bgmEnabled: Boolean, bgmVolume: Float, sfxEnabled: Boolean, sfxVolume: Float,
+    onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit, onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit,
+    playClick: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
@@ -627,6 +629,30 @@ fun SystemPanel(
                 Spacer(Modifier.height(8.dp))
                 Text("Espessura do Puxador: ${uiState.overlayHandleWidth} dp", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
                 Slider(value = uiState.overlayHandleWidth.toFloat(), onValueChange = { viewModel.updateHandleWidth(it.toInt()) }, valueRange = 16f..36f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+
+        ConsoleSectionHeader(if (isEn) "Audio" else "Áudio", theme)
+        ConsoleCard(if (isEn) "Background Music" else "Música de Fundo", if (isEn) "Loops while the app is open" else "Toca em loop enquanto a app está aberta", theme) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isEn) "Enable" else "Ativar", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = bgmEnabled, theme = theme, onCheckedChange = { onBgmToggle(it) })
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(if (isEn) "Volume: ${(bgmVolume * 100).toInt()}%" else "Volume: ${(bgmVolume * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Slider(value = bgmVolume, onValueChange = onBgmVolume, enabled = bgmEnabled, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+            }
+        }
+        ConsoleCard(if (isEn) "UI Sound Effects" else "Efeitos Sonoros da Interface", if (isEn) "Clicks and navigation feedback" else "Cliques e feedback de navegação", theme) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isEn) "Enable" else "Ativar", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = sfxEnabled, theme = theme, onCheckedChange = { onSfxToggle(it) })
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(if (isEn) "Volume: ${(sfxVolume * 100).toInt()}%" else "Volume: ${(sfxVolume * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Slider(value = sfxVolume, onValueChange = onSfxVolume, enabled = sfxEnabled, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
 
