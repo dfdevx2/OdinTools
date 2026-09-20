@@ -15,6 +15,7 @@ class PerformanceManager @Inject constructor(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var hardwareJob: Job? = null
 
+    // Caminhos Sysfs (Snapdragon / Odin)
     private val SYSFS_CPU_PERF_MAX = "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq"
     private val SYSFS_CPU_PRIME_MAX = "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
     private val SYSFS_GPU_MAX = "/sys/class/kgsl/kgsl-3d0/max_gpuclk"
@@ -43,9 +44,9 @@ class PerformanceManager @Inject constructor(
             while (isActive) {
                 if (isAutoTdp) {
                     calculateAutoTdpStep()
-                    writeLimitsToSysfs()
+                    writeLimitsToSysfsAtomic()
                 } else {
-                    writeLimitsToSysfs()
+                    writeLimitsToSysfsAtomic()
                 }
                 delay(1000)
             }
@@ -67,12 +68,32 @@ class PerformanceManager @Inject constructor(
         }
     }
 
-    private fun writeLimitsToSysfs() {
-        if (!executor.pServerAvailable) return
+    /**
+     * ESTRATÉGIA DO PULSE: Escreve todos os comandos em formato de script shell unificado.
+     * Isto garante que o desbloqueio (666), escrita (echo) e bloqueio de segurança (444)
+     * ocorram na mesma sessão atômica do KernelSU / pservbinder, evitando rejeição do kernel.
+     */
+    private fun writeLimitsToSysfsAtomic() {
+        val script = buildString {
+            appendLine("#!/system/bin/sh")
+            // Perf Cores (Policy 0)
+            appendLine("chmod 666 $SYSFS_CPU_PERF_MAX")
+            appendLine("echo $targetPerf > $SYSFS_CPU_PERF_MAX")
+            appendLine("chmod 444 $SYSFS_CPU_PERF_MAX")
 
-        executor.executeAsRoot("chmod 666 $SYSFS_CPU_PERF_MAX && echo $targetPerf > $SYSFS_CPU_PERF_MAX && chmod 444 $SYSFS_CPU_PERF_MAX")
-        executor.executeAsRoot("chmod 666 $SYSFS_CPU_PRIME_MAX && echo $targetPrime > $SYSFS_CPU_PRIME_MAX && chmod 444 $SYSFS_CPU_PRIME_MAX")
-        executor.executeAsRoot("chmod 666 $SYSFS_GPU_MAX && echo $targetGpu > $SYSFS_GPU_MAX && chmod 444 $SYSFS_GPU_MAX")
+            // Prime Cores (Policy 6)
+            appendLine("chmod 666 $SYSFS_CPU_PRIME_MAX")
+            appendLine("echo $targetPrime > $SYSFS_CPU_PRIME_MAX")
+            appendLine("chmod 444 $SYSFS_CPU_PRIME_MAX")
+
+            // Adreno GPU
+            appendLine("chmod 666 $SYSFS_GPU_MAX")
+            appendLine("echo $targetGpu > $SYSFS_GPU_MAX")
+            appendLine("chmod 444 $SYSFS_GPU_MAX")
+        }
+
+        // Executa o script atômico através do executor root / pserverbinder existente no app
+        executor.executeAsRoot(script)
     }
 
     fun applyDynamicTdp(watts: Float) {
@@ -81,6 +102,7 @@ class PerformanceManager @Inject constructor(
         targetPerf = PERF_MAX_KHZ / 2
         targetPrime = PRIME_MAX_KHZ / 2
         targetGpu = GPU_MAX_HZ / 2
+        writeLimitsToSysfsAtomic()
     }
 
     fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long) {
@@ -88,7 +110,7 @@ class PerformanceManager @Inject constructor(
         targetPerf = perfClockKHz.coerceIn(PERF_MIN_KHZ, PERF_MAX_KHZ)
         targetPrime = primeClockKHz.coerceIn(PRIME_MIN_KHZ, PRIME_MAX_KHZ)
         targetGpu = gpuClockHz.coerceIn(GPU_MIN_HZ, GPU_MAX_HZ)
-        writeLimitsToSysfs()
+        writeLimitsToSysfsAtomic()
     }
 
     fun applyFanMode(fanMode: FanMode) {
