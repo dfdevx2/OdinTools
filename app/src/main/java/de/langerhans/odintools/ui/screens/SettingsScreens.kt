@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -60,43 +61,42 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrideList: () -> Unit) {
     val uiState: MainUiModel by viewModel.uiState.collectAsState()
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var isFirstRun by remember { mutableStateOf(true) }
 
-    var showWelcomeSetup by remember { mutableStateOf(isFirstRun) }
-    var showBootAnimation by remember { mutableStateOf(false) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var isFirstRun by rememberSaveable { mutableStateOf(true) }
+    var showWelcomeSetup by rememberSaveable { mutableStateOf(isFirstRun) }
+    var showBootAnimation by rememberSaveable { mutableStateOf(false) }
 
-    var currentThemeIndex by remember { mutableIntStateOf(1) }
-    var useAmoledBlack by remember { mutableStateOf(false) }
-    var currentLanguage by remember { mutableStateOf("Português (PT-BR)") }
+    var currentThemeIndex by rememberSaveable { mutableIntStateOf(1) }
+    var useAmoledBlack by rememberSaveable { mutableStateOf(false) }
+    var currentLanguage by rememberSaveable { mutableStateOf("Português (PT-BR)") }
     val isEn = currentLanguage == "English (US)"
 
-    // Correção: Usa o primeiro tema da lista como fallback seguro em vez de DefaultTheme
     val rawTheme = AvailableThemes.getOrElse(currentThemeIndex) { AvailableThemes[0] }
     val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
 
-    var bgmEnabled by remember { mutableStateOf(true) }
-    var bgmVolume by remember { mutableFloatStateOf(0.3f) }
-    var sfxEnabled by remember { mutableStateOf(true) }
-    var sfxVolume by remember { mutableFloatStateOf(0.8f) }
+    var bgmEnabled by rememberSaveable { mutableStateOf(true) }
+    var bgmVolume by rememberSaveable { mutableFloatStateOf(0.3f) }
+    var sfxEnabled by rememberSaveable { mutableStateOf(true) }
+    var sfxVolume by rememberSaveable { mutableFloatStateOf(0.8f) }
 
     val context = LocalContext.current
     val defaultStaticRes = R.drawable.static_wallpaper_1
     val defaultVideoUri = remember { Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}") }
 
-    var liveWallpaperType by remember { mutableStateOf("Static") }
-    var blurEnabled by remember { mutableStateOf(true) }
-    var blurIntensity by remember { mutableFloatStateOf(0.4f) }
-    var wallpaperOpacity by remember { mutableFloatStateOf(0.85f) }
+    var liveWallpaperType by rememberSaveable { mutableStateOf("Static") }
+    var blurEnabled by rememberSaveable { mutableStateOf(true) }
+    var blurIntensity by rememberSaveable { mutableFloatStateOf(0.4f) }
+    var wallpaperOpacity by rememberSaveable { mutableFloatStateOf(0.85f) }
 
-    var selectedStaticRes by remember { mutableIntStateOf(defaultStaticRes) }
-    var selectedCustomUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedWallpaperName by remember { mutableStateOf(if (isEn) "Preset 1" else "Predefinição 1") }
+    var selectedStaticRes by rememberSaveable { mutableIntStateOf(defaultStaticRes) }
+    var selectedCustomUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedCustomUri = selectedCustomUriString?.let { Uri.parse(it) }
+    var selectedWallpaperName by rememberSaveable { mutableStateOf(if (isEn) "Preset 1" else "Predefinição 1") }
 
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Helper seguro para tocar efeitos sonoros
     fun playSfx(resId: Int) {
         if (sfxEnabled) {
             runCatching {
@@ -146,10 +146,10 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     }
 
     if (uiState.showSaveProfileDialog) {
-        var profileName by remember { mutableStateOf("") }
+        var profileName by rememberSaveable { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { viewModel.dismissSaveProfileDialog() },
-            title = { Text(if (isEn) "Save Custom Profile" else "Salvar Perfil de TDP Personalizado", fontFamily = finalTheme.fontFamily) },
+            title = { Text(if (isEn) "Save Custom Profile" else "Salvar Perfil Personalizado", fontFamily = finalTheme.fontFamily) },
             text = {
                 OutlinedTextField(
                     value = profileName,
@@ -190,6 +190,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             onSfxToggle = { sfxEnabled = it },
             onSfxVolume = { sfxVolume = it },
             onFinish = {
+                isFirstRun = false
                 showWelcomeSetup = false
                 showBootAnimation = true
             }
@@ -202,7 +203,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             theme = finalTheme,
             onVideoEnded = {
                 showBootAnimation = false
-                isFirstRun = false
                 playSfx(R.raw.sfx_select)
             }
         )
@@ -328,10 +328,10 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                             onLiveWallpaperTypeChange = { type ->
                                 liveWallpaperType = type
                                 if (type == "Live (MP4)") {
-                                    selectedCustomUri = null
+                                    selectedCustomUriString = null
                                     selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão"
                                 } else {
-                                    selectedCustomUri = null
+                                    selectedCustomUriString = null
                                     selectedStaticRes = R.drawable.static_wallpaper_1
                                     selectedWallpaperName = if (isEn) "Preset 1" else "Predefinição 1"
                                 }
@@ -339,16 +339,16 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                             onBlurToggle = { blurEnabled = it; playSfx(R.raw.sfx_select) }, onBlurIntensityChange = { blurIntensity = it },
                             onWallpaperOpacityChange = { wallpaperOpacity = it },
                             onPresetStaticSelected = { resId, name ->
-                                selectedCustomUri = null
+                                selectedCustomUriString = null
                                 selectedStaticRes = resId
                                 selectedWallpaperName = name
                             },
                             onPresetVideoSelected = {
-                                selectedCustomUri = null
+                                selectedCustomUriString = null
                                 selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão"
                             },
                             onCustomUriSelected = { uri, name ->
-                                selectedCustomUri = uri
+                                selectedCustomUriString = uri.toString()
                                 selectedWallpaperName = name
                             }
                         )
@@ -473,18 +473,17 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 
 @Composable
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
-    // Chave Mestra de Bloqueio (TDP ou CLOCK)
-    var activeLimitMode by remember { mutableStateOf("TDP") }
+    var activeLimitMode by rememberSaveable { mutableStateOf("TDP") }
 
-    var expandedTdpProfile by remember { mutableStateOf(false) }
-    var expandedClockProfile by remember { mutableStateOf(false) }
-    var expandedFanProfile by remember { mutableStateOf(false) }
+    var expandedTdpProfile by rememberSaveable { mutableStateOf(false) }
+    var expandedClockProfile by rememberSaveable { mutableStateOf(false) }
+    var expandedFanProfile by rememberSaveable { mutableStateOf(false) }
 
-    var selectedClockProfileName by remember { mutableStateOf("Stock (Padrão AYN)") }
-    var selectedFanProfileName by remember { mutableStateOf("Smart (Balanceado)") }
+    var selectedClockProfileName by rememberSaveable { mutableStateOf("Stock (Padrão AYN)") }
+    var selectedFanProfileName by rememberSaveable { mutableStateOf("Smart (Balanceado)") }
 
-    var showClockSaveDialog by remember { mutableStateOf(false) }
-    var customClockNameInput by remember { mutableStateOf("") }
+    var showClockSaveDialog by rememberSaveable { mutableStateOf(false) }
+    var customClockNameInput by rememberSaveable { mutableStateOf("") }
 
     val fanProfiles = listOf("Silent (Silencioso)", "Smart (Balanceado)", "Sport (Desempenho Máximo)", "Stock (Padrão)")
     val clockPresets = listOf("Power Save (Underclock Seguro)", "Balanced (Intermediário)", "Triple A (Alto Desempenho)", "Stock (Padrão AYN)")
@@ -498,7 +497,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
-        // --- 1. MOTOR E KSU ---
         ConsoleSectionHeader(if (isEn) "Engine & Optimization" else "Motor e Otimização", theme)
         ConsoleCard(if (isEn) "KSU Module Integration" else "Módulo KSU", if (isEn) "Toggle if Odin Hub KSU module is installed" else "Ative se instalou o Módulo KSU (Remove overhead)", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -507,7 +505,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // --- 2. CONTROLE DE VENTOINHA (FAN) ---
         ConsoleSectionHeader(if (isEn) "Cooling & Fan Control" else "Controle de Ventoinha (Cooler)", theme)
         ConsoleCard(if (isEn) "Fan Speed Profiles" else "Perfis de Ventoinha", selectedFanProfileName, theme, { expandedFanProfile = true; playClick() }) {
             DropdownMenu(expanded = expandedFanProfile, onDismissRequest = { expandedFanProfile = false }, modifier = Modifier.background(theme.surface)) {
@@ -517,6 +514,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                         onClick = {
                             selectedFanProfileName = profile
                             expandedFanProfile = false
+                            // Removido temporariamente: viewModel.setFanMode(profile)
                             playClick()
                         }
                     )
@@ -524,7 +522,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // --- SELETOR DE MODO DE LIMITAÇÃO ---
         ConsoleSectionHeader(if (isEn) "Hardware Limitation Mode" else "Modo de Limitação de Hardware", theme)
         Row(
             modifier = Modifier
@@ -542,7 +539,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                     .background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent)
                     .clickable {
                         activeLimitMode = "TDP"
-                        // Reset de Segurança: Volta os clocks para o padrão máximo da máquina
                         viewModel.updateManualClocks(3530f, 4320f, 1100f)
                         playClick()
                     }
@@ -558,7 +554,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                     .background(if (isClockMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent)
                     .clickable {
                         activeLimitMode = "CLOCK"
-                        // Reset de Segurança: Desativa o limite de TDP
                         viewModel.updatePerformanceProfile("Stock")
                         playClick()
                     }
@@ -569,7 +564,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // --- 3. AUTOTDP E PERFIS DE TDP ---
         ConsoleCard(
             title = if (isEn) "Dynamic AutoTDP Control" else "Controle Dinâmico AutoTDP",
             subtitle = if (isEn) "Monitors FPS and automatically trims TDP. Disabled when Clock Mode is active." else "Monitora o FPS e ajusta o TDP dinamicamente. Fica desativado se o Modo Clock estiver ativo.",
@@ -623,7 +617,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // --- 4. TRAVAMENTO MANUAL DE CLOCKS E PERFIS DE UNDERCLOCK ---
         ConsoleCard(
             title = if (isEn) "Clock Profile Presets" else "Perfis de Frequência / Underclock",
             subtitle = selectedClockProfileName,
@@ -705,7 +698,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        // --- 5. OVERRIDES POR JOGO ---
         ConsoleSectionHeader(if (isEn) "Game Rules & Per-App Overrides" else "Regras por Jogo e Aplicativo", theme)
         ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific TDP & clock rules for emulators" else "Vincule perfis de TDP, Clocks e Fan a emuladores específicos", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -755,11 +747,11 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
 
 @Composable
 fun DisplayPanel(theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
-    var satValue by remember { mutableFloatStateOf(1.0f) }
-    var tempValue by remember { mutableFloatStateOf(6500f) }
-    var expandedProfile by remember { mutableStateOf(false) }
+    var satValue by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var tempValue by rememberSaveable { mutableFloatStateOf(6500f) }
+    var expandedProfile by rememberSaveable { mutableStateOf(false) }
     val profiles = if (isEn) listOf("Native", "Vibrant", "Cinema", "Retro") else listOf("Nativo", "Vibrante", "Cinema", "Retrô")
-    var selectedProfile by remember { mutableStateOf(profiles[0]) }
+    var selectedProfile by rememberSaveable { mutableStateOf(profiles[0]) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader(if (isEn) "Screen Calibration" else "Calibração de Tela", theme)
@@ -808,9 +800,9 @@ fun SystemPanel(
     onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit,
     onPresetStaticSelected: (Int, String) -> Unit, onPresetVideoSelected: () -> Unit, onCustomUriSelected: (Uri, String) -> Unit
 ) {
-    var expandedLang by remember { mutableStateOf(false) }
-    var expandedTheme by remember { mutableStateOf(false) }
-    var expandedWallType by remember { mutableStateOf(false) }
+    var expandedLang by rememberSaveable { mutableStateOf(false) }
+    var expandedTheme by rememberSaveable { mutableStateOf(false) }
+    var expandedWallType by rememberSaveable { mutableStateOf(false) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { onCustomUriSelected(it, if (isEn) "Custom Image" else "Imagem Personalizada") }
