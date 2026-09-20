@@ -1,185 +1,125 @@
 package de.langerhans.odintools.appsettings
 
+import android.content.Context
+import android.content.pm.PackageManager
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.data.AppOverrideDao
 import de.langerhans.odintools.data.AppOverrideEntity
-import de.langerhans.odintools.models.ControllerStyle
-import de.langerhans.odintools.models.FanMode
-import de.langerhans.odintools.models.FanMode.Companion.getDisabledFanModes
-import de.langerhans.odintools.models.L2R2Style
-import de.langerhans.odintools.models.NoChange
-import de.langerhans.odintools.models.PerfMode
-import de.langerhans.odintools.tools.DeviceUtils
+import de.langerhans.odintools.data.SharedPrefsRepo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
+data class AppOverrideUiState(
+    val packageName: String = "",
+    val appName: String = "",
+    val tdpProfile: String = "Nenhum",
+    val clockProfile: String = "Nenhum",
+    val fanProfile: String = "Nenhum",
+    val isSaved: Boolean = false,
+    val availableTdpProfiles: List<String> = emptyList(),
+    val availableClockProfiles: List<String> = emptyList()
+)
+
 @HiltViewModel
-class AppOverridesViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
-    private val appOverrideDao: AppOverrideDao,
-    private val appOverrideMapper: AppOverrideMapper,
-    private val deviceUtils: DeviceUtils,
+class AppOverrideViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val overrideDao: AppOverrideDao,
+    private val sharedPrefsRepo: SharedPrefsRepo,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(AppOverridesUiModel())
-    val uiState: StateFlow<AppOverridesUiModel> = _uiState.asStateFlow()
-
-    private val packageName = checkNotNull(savedStateHandle.get<String>("packageName"))
-    private var initialControllerStyle = NoChange.KEY
-    private var initialL2R2Style = NoChange.KEY
-    private var initialPerfMode = NoChange.KEY
-    private var initialFanMode = NoChange.KEY
+    private val _uiState = MutableStateFlow(AppOverrideUiState())
+    val uiState: StateFlow<AppOverrideUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            val app = withContext(Dispatchers.IO) {
-                appOverrideDao.getForPackage(packageName)
-            }
+        val packageName = savedStateHandle.get<String>("packageName") ?: ""
 
-            val uiModel = if (app == null) {
-                appOverrideMapper.mapEmptyOverride(packageName)
-            } else {
-                initialControllerStyle = app.controllerStyle ?: NoChange.KEY
-                initialL2R2Style = app.l2R2Style ?: NoChange.KEY
-                initialPerfMode = app.perfMode ?: NoChange.KEY
-                initialFanMode = app.fanMode ?: NoChange.KEY
+        // Puxa os perfis padrão + os perfis customizados que você já criou!
+        val baseTdp = listOf("Nenhum", "Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock (Padrão AYN)")
+        val customTdp = sharedPrefsRepo.customTdpProfiles.map { it.name }
 
-                appOverrideMapper.mapAppOverride(app)
-            }
+        val baseClock = listOf("Nenhum", "Power Save (Underclock Seguro)", "Balanced (Intermediário)", "Triple A (Alto Desempenho)", "Stock (Padrão AYN)")
+        val customClock = sharedPrefsRepo.customClockProfiles.map { it.name }
 
-            _uiState.update {
-                it.copy(
-                    app = uiModel,
-                    isNewApp = app == null,
-                    disabledFanModeKeys = getDisabledFanModes(initialPerfMode),
-                    deviceVersion = deviceUtils.getDeviceVersion(),
-                )
+        _uiState.update { it.copy(
+            packageName = packageName,
+            availableTdpProfiles = baseTdp + customTdp,
+            availableClockProfiles = baseClock + customClock
+        ) }
+
+        loadAppDetails(packageName)
+        loadOverride(packageName)
+    }
+
+    private fun loadAppDetails(packageName: String) {
+        val pm = context.packageManager
+        val appName = try {
+            val info = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            pm.getApplicationLabel(info).toString()
+        } catch (e: Exception) {
+            packageName
+        }
+        _uiState.update { it.copy(appName = appName) }
+    }
+
+    private fun loadOverride(packageName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val entity = overrideDao.getForPackage(packageName)
+            if (entity != null) {
+                _uiState.update { it.copy(
+                    tdpProfile = entity.tdpProfile ?: "Nenhum",
+                    clockProfile = entity.clockProfile ?: "Nenhum",
+                    fanProfile = entity.fanProfile ?: "Nenhum",
+                    isSaved = true
+                ) }
             }
         }
     }
 
-    fun saveClicked() {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                appOverrideDao.save(
-                    AppOverrideEntity(
-                        packageName = packageName,
-                        controllerStyle = _uiState.value.app?.controllerStyle?.id,
-                        l2R2Style = _uiState.value.app?.l2r2Style?.id,
-                        perfMode = _uiState.value.app?.perfMode?.id,
-                        fanMode = _uiState.value.app?.fanMode?.id,
-                    ),
-                )
-            }
-        }
-        _uiState.update {
-            it.copy(navigateBack = true)
-        }
+    fun updateTdpProfile(profile: String) {
+        _uiState.update { it.copy(tdpProfile = profile) }
     }
 
-    fun deleteClicked() {
-        _uiState.update {
-            it.copy(showDeleteConfirmDialog = true)
-        }
+    fun updateClockProfile(profile: String) {
+        _uiState.update { it.copy(clockProfile = profile) }
     }
 
-    fun deleteDismissed() {
-        _uiState.update {
-            it.copy(showDeleteConfirmDialog = false)
-        }
+    fun updateFanProfile(profile: String) {
+        _uiState.update { it.copy(fanProfile = profile) }
     }
 
-    fun deleteConfirmed() {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                appOverrideDao.deleteByPackageName(packageName)
-            }
-        }
-        _uiState.update {
-            it.copy(showDeleteConfirmDialog = false, navigateBack = true)
-        }
-    }
-
-    fun controllerStyleSelected(key: String) {
-        _uiState.update {
-            it.copy(
-                app = it.app?.copy(controllerStyle = ControllerStyle.getById(key)),
-                hasUnsavedChanges = hasUnsavedChanges(controllerStyle = key),
+    fun saveOverride() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = _uiState.value
+            val entity = AppOverrideEntity(
+                packageName = current.packageName,
+                tdpProfile = if (current.tdpProfile == "Nenhum") null else current.tdpProfile,
+                clockProfile = if (current.clockProfile == "Nenhum") null else current.clockProfile,
+                fanProfile = if (current.fanProfile == "Nenhum") null else current.fanProfile
             )
+            overrideDao.save(entity)
+            _uiState.update { it.copy(isSaved = true) }
         }
     }
 
-    fun l2R2StyleSelected(key: String) {
-        _uiState.update {
-            it.copy(
-                app = it.app?.copy(l2r2Style = L2R2Style.getById(key)),
-                hasUnsavedChanges = hasUnsavedChanges(l2R2Style = key),
-            )
+    fun deleteOverride() {
+        viewModelScope.launch(Dispatchers.IO) {
+            overrideDao.deleteByPackageName(_uiState.value.packageName)
+            _uiState.update { it.copy(
+                tdpProfile = "Nenhum",
+                clockProfile = "Nenhum",
+                fanProfile = "Nenhum",
+                isSaved = false
+            ) }
         }
-    }
-
-    fun perfModeSelected(key: String) {
-        val perfMode = PerfMode.getById(key)
-        val disabledFanModes = getDisabledFanModes(key)
-
-        val currentFanMode = if (key == NoChange.KEY) {
-            null
-        } else {
-            _uiState.value.app?.fanMode
-        }
-
-        val fixedFanMode = if (currentFanMode == null || currentFanMode.id in disabledFanModes) {
-            systemFanPerfModeMapping[perfMode]
-        } else {
-            currentFanMode
-        }
-
-        _uiState.update {
-            it.copy(
-                app = it.app?.copy(perfMode = perfMode, fanMode = fixedFanMode),
-                hasUnsavedChanges = hasUnsavedChanges(perfMode = key, fanMode = fixedFanMode?.id),
-                disabledFanModeKeys = disabledFanModes,
-            )
-        }
-    }
-
-    fun fanModeSelected(key: String) {
-        _uiState.update {
-            it.copy(
-                app = it.app?.copy(fanMode = FanMode.getById(key)),
-                hasUnsavedChanges = hasUnsavedChanges(fanMode = key),
-            )
-        }
-    }
-
-    private fun hasUnsavedChanges(
-        controllerStyle: String? = null,
-        l2R2Style: String? = null,
-        perfMode: String? = null,
-        fanMode: String? = null,
-    ): Boolean {
-        return listOf(
-            (controllerStyle ?: _uiState.value.app?.controllerStyle?.id) != initialControllerStyle,
-            (l2R2Style ?: _uiState.value.app?.l2r2Style?.id) != initialL2R2Style,
-            (perfMode ?: _uiState.value.app?.perfMode?.id) != initialPerfMode,
-            (fanMode ?: _uiState.value.app?.fanMode?.id) != initialFanMode,
-        ).any { it }
-    }
-
-    companion object {
-        private val systemFanPerfModeMapping = mapOf(
-            PerfMode.Standard to FanMode.Off,
-            PerfMode.Performance to FanMode.Quiet,
-            PerfMode.HighPerformance to FanMode.Sport,
-        )
     }
 }

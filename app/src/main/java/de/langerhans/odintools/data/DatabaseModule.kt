@@ -25,6 +25,8 @@ class DatabaseModule {
             appContext,
             AppDatabase::class.java,
             "app",
-        ).build()
+        )
+            .fallbackToDestructiveMigration() // Limpa os dados obsoletos e recria a tabela com as novas colunas
+            .build()
     }
 }
