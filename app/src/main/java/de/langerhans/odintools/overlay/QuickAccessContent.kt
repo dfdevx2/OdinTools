@@ -5,29 +5,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -50,7 +33,7 @@ fun QuickAccessContent(
     onClose: () -> Unit
 ) {
     val currentWidth by animateDpAsState(
-        targetValue = if (isExpanded) 340.dp else 28.dp,
+        targetValue = if (isExpanded) 380.dp else 26.dp,
         animationSpec = tween(250),
         label = "widthAnim"
     )
@@ -64,7 +47,7 @@ fun QuickAccessContent(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(theme.background.copy(alpha = 0.95f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                    .background(theme.background.copy(alpha = 0.96f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
                     .border(1.dp, theme.primary.copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
             ) {
                 QuickAccessPanel(
@@ -75,21 +58,21 @@ fun QuickAccessContent(
                 )
             }
         } else {
-            // Pulse floating handle pill
+            // Adjustable Slim Handle Pill
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
-                    .background(theme.primary.copy(alpha = 0.85f))
-                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                    .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
+                    .background(theme.primary.copy(alpha = 0.5f))
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                     .clickable { onExpand() },
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .width(3.dp)
-                        .height(36.dp)
-                        .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(50))
+                        .width(2.dp)
+                        .height(30.dp)
+                        .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(50))
                 )
             }
         }
@@ -103,6 +86,8 @@ private fun QuickAccessPanel(
     isDllReady: Boolean,
     onClose: () -> Unit
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Shaders/ReShade, 1: Upscaling (SGSR/LSFG), 2: Performance
+
     var reshadeProfile by remember { mutableStateOf(prefs.reshadeProfile) }
     var sgsrEnabled by remember { mutableStateOf(prefs.globalSgsrEnabled) }
     val sgsrMode = prefs.sgsrMode
@@ -118,6 +103,7 @@ private fun QuickAccessPanel(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
+        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -127,222 +113,202 @@ private fun QuickAccessPanel(
                 text = "ODIN HUB",
                 color = theme.primary,
                 fontWeight = FontWeight.Black,
-                fontSize = 20.sp,
+                fontSize = 18.sp,
                 letterSpacing = 1.sp
             )
             Box(
                 modifier = Modifier
-                    .size(30.dp)
+                    .size(28.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(theme.surface.copy(alpha = 0.6f))
                     .clickable { onClose() },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "✕",
-                    color = theme.text,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
+                Text(text = "✕", color = theme.text, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Navigation Tabs (Shaders | Upscaling | Performance)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black.copy(alpha = 0.3f))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            val tabs = listOf("Shaders", "Upscaling", "Performance")
+            tabs.forEachIndexed { index, title ->
+                val isSelected = selectedTab == index
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) theme.primary else Color.Transparent)
+                        .clickable { selectedTab = index }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        color = if (isSelected) Color.White else theme.text.copy(alpha = 0.6f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Vulkan Shaders
-        Text(
-            text = "VULKAN SHADERS (In-Game)",
-            color = theme.text.copy(alpha = 0.5f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        when (selectedTab) {
+            0 -> {
+                // Tab 0: Vulkan ReShade & Post-FX Profiles (All 21 Winlator Profiles)
+                Text(text = "VULKAN POST-FX & RESHADE", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
 
-        val profiles = listOf("Native", "Vibrant", "Anime Edge", "Game Clarity", "Color Boost", "Retro CRT")
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (rowProfiles in profiles.chunked(2)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    for (profile in rowProfiles) {
-                        val isSelected = reshadeProfile == profile
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) theme.primary else theme.surface)
-                                .border(1.dp, if (isSelected) theme.primary else theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                .clickable {
-                                    reshadeProfile = profile
-                                    prefs.reshadeProfile = profile
-                                    VulkanNativeBridge.applyReshade(profile, prefs.saturationOverride, prefs.temperatureOverride)
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = profile,
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Snapdragon Super Resolution
-        Text(
-            text = "ENGINE UPSCALING",
-            color = theme.text.copy(alpha = 0.5f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(theme.surface)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Snapdragon SGSR",
-                color = theme.text,
-                fontSize = 13.sp
-            )
-            Switch(
-                checked = sgsrEnabled,
-                onCheckedChange = {
-                    sgsrEnabled = it
-                    prefs.globalSgsrEnabled = it
-                    VulkanNativeBridge.applySgsr(it, sgsrMode)
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = theme.primary,
-                    checkedTrackColor = theme.primary.copy(alpha = 0.4f)
+                val allProfiles = listOf(
+                    "Native", "Vibrant", "Cinema", "Retro", "HDR Boost",
+                    "Vibrance", "Curves", "CAS Lite", "Technicolor", "Levels",
+                    "Game Clarity", "Cinematic", "Vivid", "Competitive",
+                    "Adaptive Sharpen", "Filmic", "Arcade", "Retro CRT",
+                    "Upscale Sharp", "Pixel Clean", "Anime Edge", "Color Boost"
                 )
-            )
-        }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Lossless Scaling Frame Generation
-        Text(
-            text = "FRAME GENERATION (LSFG)",
-            color = theme.text.copy(alpha = 0.5f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(theme.surface)
-                .alpha(if (isDllReady) 1f else 0.4f)
-                .padding(12.dp)
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Lossless Scaling LSFG",
-                        color = theme.text,
-                        fontSize = 13.sp
-                    )
-                    Switch(
-                        checked = lsfgEnabled && isDllReady,
-                        enabled = isDllReady,
-                        onCheckedChange = {
-                            lsfgEnabled = it
-                            prefs.globalLsfgEnabled = it
-                            VulkanNativeBridge.applyLsfg(it, lsfgMultiplier, lsfgPacing)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = theme.primary,
-                            checkedTrackColor = theme.primary.copy(alpha = 0.4f)
-                        )
-                    )
-                }
-
-                if (!isDllReady) {
-                    Text(
-                        text = "Requer DLL importada e ativada em Display",
-                        color = Color(0xFFFF5252),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Multiplicador",
-                            color = theme.text.copy(alpha = 0.7f),
-                            fontSize = 12.sp
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val multipliers = listOf("2x", "3x")
-                            for (mult in multipliers) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (rowProfiles in allProfiles.chunked(2)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (profile in rowProfiles) {
+                                val isSelected = reshadeProfile == profile
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(if (lsfgMultiplier == mult) theme.primary else theme.surface.copy(alpha = 0.6f))
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) theme.primary else theme.surface)
+                                        .border(1.dp, if (isSelected) theme.primary else theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
                                         .clickable {
-                                            lsfgMultiplier = mult
-                                            prefs.lsfgMultiplier = mult
-                                            VulkanNativeBridge.applyLsfg(lsfgEnabled, mult, lsfgPacing)
+                                            reshadeProfile = profile
+                                            prefs.reshadeProfile = profile
+                                            VulkanNativeBridge.applyReshade(profile, prefs.saturationOverride, prefs.temperatureOverride)
                                         }
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = mult,
-                                        color = Color.White,
-                                        fontSize = 11.sp
-                                    )
+                                    Text(text = profile, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
                     }
+                }
+            }
+            1 -> {
+                // Tab 1: Upscaling (SGSR & Lossless Scaling LSFG)
+                Text(text = "SNAPDRAGON SUPER RESOLUTION", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Exibir FPS LSFG",
-                            color = theme.text.copy(alpha = 0.7f),
-                            fontSize = 12.sp
-                        )
-                        Switch(
-                            checked = showFps,
-                            onCheckedChange = {
-                                showFps = it
-                                prefs.showFpsOverlay = it
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = theme.primary,
-                                checkedTrackColor = theme.primary.copy(alpha = 0.4f)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.surface)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "Ativar SGSR", color = theme.text, fontSize = 12.sp)
+                    Switch(
+                        checked = sgsrEnabled,
+                        onCheckedChange = {
+                            sgsrEnabled = it
+                            prefs.globalSgsrEnabled = it
+                            VulkanNativeBridge.applySgsr(it, sgsrMode)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = "LOSSLESS SCALING (LSFG)", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.surface)
+                        .alpha(if (isDllReady) 1f else 0.4f)
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "Ativar LSFG", color = theme.text, fontSize = 12.sp)
+                            Switch(
+                                checked = lsfgEnabled && isDllReady,
+                                enabled = isDllReady,
+                                onCheckedChange = {
+                                    lsfgEnabled = it
+                                    prefs.globalLsfgEnabled = it
+                                    VulkanNativeBridge.applyLsfg(it, lsfgMultiplier, lsfgPacing)
+                                },
+                                colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
                             )
-                        )
+                        }
+
+                        if (!isDllReady) {
+                            Text(text = "Requer Lossless.dll importada", color = Color(0xFFFF5252), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+                        } else {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = "Multiplicador", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    for (mult in listOf("2x", "3x", "4x")) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(if (lsfgMultiplier == mult) theme.primary else theme.surface.copy(alpha = 0.6f))
+                                                .clickable {
+                                                    lsfgMultiplier = mult
+                                                    prefs.lsfgMultiplier = mult
+                                                    VulkanNativeBridge.applyLsfg(lsfgEnabled, mult, lsfgPacing)
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(text = mult, color = Color.White, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            2 -> {
+                // Tab 2: Performance & TDP Profiles
+                Text(text = "PERFORMANCE PROFILES", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val perfProfiles = listOf("Power Save", "Balanced", "Triple A", "Stock")
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (profile in perfProfiles) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(theme.surface)
+                                .clickable {
+                                    // Direct trigger for performance profiles
+                                }
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = profile, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
