@@ -3,6 +3,7 @@
 package de.langerhans.odintools.ui.screens
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.ImageDecoder
 import android.media.MediaPlayer
 import android.net.Uri
@@ -34,16 +35,18 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -63,6 +66,8 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showWelcomeSetup by rememberSaveable { mutableStateOf(viewModel.isFirstRun()) }
@@ -111,6 +116,8 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             VideoBootScreen(theme = finalTheme, onVideoEnded = { showBootAnimation = false; playSfx(R.raw.sfx_select) })
         } else {
             Box(modifier = Modifier.fillMaxSize().background(finalTheme.background)) {
+
+                // Background Layer (Wallpaper + Blur)
                 Box(modifier = Modifier.fillMaxSize().alpha(wallpaperOpacity)) {
                     if (liveWallpaperType == "Live (MP4)") {
                         val activeVideoUri = if (selectedCustomUri != null && selectedCustomUri.toString().startsWith("content://")) selectedCustomUri else Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}")
@@ -121,23 +128,56 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                     }
                 }
 
+                // Overlay Gradient
                 Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(finalTheme.background.copy(alpha = 0.4f), Color.Black.copy(alpha = 0.85f)))))
 
-                Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
-                    Text("ODIN HUB", fontSize = 28.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 2.sp, modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp))
-                    ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn) { if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } }
+                // Adaptive Layout (Pill Design)
+                if (isLandscape) {
+                    Row(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                        Column(
+                            modifier = Modifier.width(110.dp).fillMaxHeight(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("ODIN\nHUB", fontSize = 20.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 1.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 16.dp))
+                            ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn, isLandscape = true) {
+                                if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+                            }
+                        }
 
-                    AnimatedContent(
-                        targetState = selectedTab,
-                        transitionSpec = { slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeIn() togetherWith slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeOut() },
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
-                        label = "tab_anim"
-                    ) { targetTab ->
-                        when (targetTab) {
-                            0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
-                            1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                            2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                            3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
+                        AnimatedContent(
+                            targetState = selectedTab,
+                            transitionSpec = { (slideInHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) width else -width } + fadeIn()) togetherWith (slideOutHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) -width else width } + fadeOut()) },
+                            modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 24.dp, top = 24.dp, bottom = 16.dp),
+                            label = "tab_anim"
+                        ) { targetTab ->
+                            when (targetTab) {
+                                0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
+                                1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                                2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
+                            }
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                        Text("ODIN HUB", fontSize = 28.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 2.sp, modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 8.dp))
+                        ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn, isLandscape = false) {
+                            if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+                        }
+
+                        AnimatedContent(
+                            targetState = selectedTab,
+                            transitionSpec = { (slideInHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) width else -width } + fadeIn()) togetherWith (slideOutHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) -width else width } + fadeOut()) },
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
+                            label = "tab_anim"
+                        ) { targetTab ->
+                            when (targetTab) {
+                                0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
+                                1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                                2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
+                            }
                         }
                     }
                 }
@@ -224,23 +264,49 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
 }
 
 @Composable
-fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, isEn: Boolean, onTabSelected: (Int) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        ConsoleTabItem(0, "PERFORMANCE", R.drawable.ic_sliders, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(1, "DISPLAY", R.drawable.ic_palette, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(2, if (isEn) "CONTROLS" else "CONTROLES", R.drawable.ic_gamepad, selectedTab, theme, onTabSelected)
-        ConsoleTabItem(3, if (isEn) "SYSTEM" else "SISTEMA", R.drawable.ic_app_settings, selectedTab, theme, onTabSelected)
+fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, isEn: Boolean, isLandscape: Boolean, onTabSelected: (Int) -> Unit) {
+    val modifier = if (isLandscape) {
+        Modifier.padding(horizontal = 8.dp).fillMaxHeight(0.85f).width(85.dp)
+    } else {
+        Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth().height(85.dp)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(32.dp))
+            .background(theme.surface.copy(alpha = 0.5f))
+            .border(1.dp, theme.text.copy(alpha = 0.15f), RoundedCornerShape(32.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLandscape) {
+            Column(modifier = Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
+                ConsoleTabItem(0, "PERF", R.drawable.ic_sliders, selectedTab, theme, isLandscape, onTabSelected)
+                ConsoleTabItem(1, "DISP", R.drawable.ic_palette, selectedTab, theme, isLandscape, onTabSelected)
+                ConsoleTabItem(2, "CTRL", R.drawable.ic_gamepad, selectedTab, theme, isLandscape, onTabSelected)
+                ConsoleTabItem(3, "SYS", R.drawable.ic_app_settings, selectedTab, theme, isLandscape, onTabSelected)
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                ConsoleTabItem(0, "PERFORMANCE", R.drawable.ic_sliders, selectedTab, theme, isLandscape, onTabSelected)
+                ConsoleTabItem(1, "DISPLAY", R.drawable.ic_palette, selectedTab, theme, isLandscape, onTabSelected)
+                ConsoleTabItem(2, if (isEn) "CONTROLS" else "CONTROLES", R.drawable.ic_gamepad, selectedTab, theme, isLandscape, onTabSelected)
+                ConsoleTabItem(3, if (isEn) "SYSTEM" else "SISTEMA", R.drawable.ic_app_settings, selectedTab, theme, isLandscape, onTabSelected)
+            }
+        }
     }
 }
 
 @Composable
-fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, theme: ConsoleTheme, onClick: (Int) -> Unit) {
+fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, theme: ConsoleTheme, isLandscape: Boolean, onClick: (Int) -> Unit) {
     val isSelected = selectedTab == index
     val color by animateColorAsState(if (isSelected) theme.primary else theme.text.copy(alpha = 0.4f), label = "tabColor")
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick(index) }.padding(8.dp)) {
-        Icon(painterResource(iconResId), contentDescription = title, tint = color, modifier = Modifier.size(28.dp))
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick(index) }.padding(if (isLandscape) 4.dp else 8.dp)
+    ) {
+        Icon(painterResource(iconResId), contentDescription = title, tint = color, modifier = Modifier.size(if (isLandscape) 24.dp else 28.dp))
         Spacer(modifier = Modifier.height(4.dp))
-        Text(title, color = color, fontSize = 12.sp, fontFamily = theme.fontFamily, fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold, letterSpacing = 1.sp)
+        Text(title, color = color, fontSize = if (isLandscape) 10.sp else 12.sp, fontFamily = theme.fontFamily, fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold, letterSpacing = 1.sp)
         Box(modifier = Modifier.height(3.dp).width(24.dp).clip(RoundedCornerShape(50)).background(if (isSelected) theme.primary else Color.Transparent))
     }
 }
@@ -251,33 +317,30 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     val isTdpMode = uiState.activeLimitMode == "TDP"
     val isClockMode = uiState.activeLimitMode == "CLOCK"
 
+    var savedPresetName by remember { mutableStateOf("") }
+    val tdpProfiles = listOf("Power Save" to 5f, "Balanced" to 10f, "Triple A" to 15f, "Stock" to 25f)
+    val clockProfiles = listOf("Power Save", "Balanced", "Triple A", "Stock")
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
-        // App Overrides Card Restored
+        // App Overrides Access Card
         ConsoleCard(
             if (isEn) "Per-App Overrides" else "Configurações por Aplicativo",
             if (isEn) "Customize TDP, Clocks, and Shaders per game" else "Personalize TDP, Clocks e Shaders individualmente por jogo",
             theme,
             playClick = { navigateToOverrideList(); playClick() }
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    if (isEn) "Manage game-specific rules" else "Gerenciar regras específicas de jogos",
-                    color = theme.text,
-                    fontFamily = theme.fontFamily,
-                    fontSize = 12.sp
-                )
-                Text(
-                    if (isEn) "Configure >" else "Configurar >",
-                    color = theme.primary,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = theme.fontFamily,
-                    fontSize = 12.sp
-                )
+            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (isEn) "Manage game-specific rules" else "Gerenciar regras específicas de jogos", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Text(if (isEn) "Configure >" else "Configurar >", color = theme.primary, fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily, fontSize = 12.sp)
+            }
+        }
+
+        ConsoleSectionHeader(if (isEn) "Execution Backend" else "Backend de Execução", theme)
+        ConsoleCard(if (isEn) "Root / P-Server Binder" else "KernelSU vs P-Server", if (isEn) "Switch operation mode" else "Alternar modo de operação", theme) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (isEn) "Use KernelSU (Root)" else "Usar KernelSU (Root)", color = theme.text, fontFamily = theme.fontFamily)
+                ConsoleToggle(checked = uiState.useRootTarget, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateUseRootTarget(it); playClick() })
             }
         }
 
@@ -287,20 +350,62 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isClockMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("CLOCK"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text(if (isEn) "Lock by Clocks" else "Limitar por Clocks", color = if (isClockMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily) }
         }
 
-        ConsoleCard(if (isEn) "Dynamic AutoTDP Control" else "Controle Dinâmico AutoTDP", "Limit: ${uiState.tdpValue.toInt()} W", theme, enabled = isTdpMode) {
-            Slider(value = uiState.tdpValue, onValueChange = { viewModel.updateTdp(it) }, valueRange = 5f..25f, enabled = isTdpMode, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-        }
+        if (isTdpMode) {
+            ConsoleCard(if (isEn) "Global TDP Profiles" else "Perfis Globais de TDP", if (isEn) "Select or create" else "Selecione ou crie um perfil", theme, enabled = isTdpMode) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for ((profName, watts) in tdpProfiles) {
+                            val isSel = uiState.tdpValue == watts
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable { if(isTdpMode) viewModel.updateTdp(watts) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("TDP Limit: ${uiState.tdpValue.toInt()} W", color = theme.text, fontSize = 12.sp)
+                    Slider(value = uiState.tdpValue, onValueChange = { viewModel.updateTdp(it) }, valueRange = 5f..25f, enabled = isTdpMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(value = savedPresetName, onValueChange = { savedPresetName = it }, label = { Text(if (isEn) "Preset Name" else "Nome do Preset TDP", fontSize = 10.sp) }, modifier = Modifier.weight(1f).height(50.dp), textStyle = TextStyle(fontSize = 12.sp, color = theme.text), enabled = isTdpMode)
+                        Button(onClick = { if (savedPresetName.isNotBlank() && isTdpMode) { viewModel.saveCustomProfile(savedPresetName, "TDP", uiState.tdpValue, 0f, 0f, 0f); savedPresetName = "" } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.height(50.dp), enabled = isTdpMode) { Text(if (isEn) "Save" else "Salvar", fontSize = 11.sp, color = Color.White) }
+                    }
+                }
+            }
+        } else {
+            ConsoleCard(if (isEn) "Global Clock Profiles" else "Perfis Globais de Clocks", if (isEn) "Select or create" else "Selecione ou crie um perfil", theme, enabled = isClockMode) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (profName in clockProfiles) {
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(theme.surface).clickable {
+                                if(isClockMode) {
+                                    when (profName) {
+                                        "Power Save" -> viewModel.updateManualClocks(1735f, 2246f, 160f)
+                                        "Balanced" -> viewModel.updateManualClocks(2400f, 3000f, 500f)
+                                        "Triple A" -> viewModel.updateManualClocks(3000f, 3800f, 800f)
+                                        "Stock" -> viewModel.updateManualClocks(3530f, 4320f, 1100f)
+                                    }
+                                }
+                            }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("CPU Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                    Slider(value = uiState.cpuPerfClock, onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) }, valueRange = 1735f..3530f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("CPU Prime Cores (2x): ${uiState.cpuPrimeClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                    Slider(value = uiState.cpuPrimeClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) }, valueRange = 2246f..4320f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Adreno GPU: ${uiState.gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                    Slider(value = uiState.gpuClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) }, valueRange = 160f..1100f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
 
-        ConsoleCard(if (isEn) "Discrete Manual Clocks" else "Controle Manual de Clocks", "Perf Cores: ${uiState.cpuPerfClock.toInt()} MHz", theme, enabled = isClockMode) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(if (isEn) "Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz" else "Núcleos de Performance (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = uiState.cpuPerfClock, onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) }, valueRange = 1735f..3530f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(if (isEn) "Prime Cores (2x): ${uiState.cpuPrimeClock.toInt()} MHz" else "Núcleos Prime (2x): ${uiState.cpuPrimeClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = uiState.cpuPrimeClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) }, valueRange = 2246f..4320f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                Spacer(modifier = Modifier.height(12.dp))
-                Text("Adreno GPU: ${uiState.gpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = uiState.gpuClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) }, valueRange = 160f..1100f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(value = savedPresetName, onValueChange = { savedPresetName = it }, label = { Text(if (isEn) "Preset Name" else "Nome do Preset Clocks", fontSize = 10.sp) }, modifier = Modifier.weight(1f).height(50.dp), textStyle = TextStyle(fontSize = 12.sp, color = theme.text), enabled = isClockMode)
+                        Button(onClick = { if (savedPresetName.isNotBlank() && isClockMode) { viewModel.saveCustomProfile(savedPresetName, "CLOCK", 0f, uiState.cpuPerfClock, uiState.cpuPrimeClock, uiState.gpuClock); savedPresetName = "" } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.height(50.dp), enabled = isClockMode) { Text(if (isEn) "Save" else "Salvar", fontSize = 11.sp, color = Color.White) }
+                    }
+                }
             }
         }
     }

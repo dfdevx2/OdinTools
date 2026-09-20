@@ -67,9 +67,11 @@ class MainViewModel @Inject constructor(
                 vibrationEnabled = settings.vibrationEnabled,
                 chargeLimitEnabled = prefs.chargeLimitEnabled,
                 videoOutputOverrideEnabled = prefs.videoOutputOverrideEnabled,
+                appOverridesEnabled = prefs.appOverridesEnabled,
 
                 selectedThemeIndex = prefs.selectedThemeIndex,
                 useAmoledBlack = prefs.useAmoledBlack,
+                useRootTarget = prefs.useRootTarget,
 
                 currentSaturation = prefs.saturationOverride,
                 currentTemperature = prefs.temperatureOverride,
@@ -109,6 +111,11 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(useAmoledBlack = enabled) }
     }
 
+    fun updateUseRootTarget(enabled: Boolean) {
+        prefs.useRootTarget = enabled
+        _uiState.update { it.copy(useRootTarget = enabled) }
+    }
+
     fun finishWelcomeSetup() {
         prefs.isFirstRun = false
     }
@@ -145,16 +152,6 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(activeLimitMode = mode) }
     }
 
-    fun updatePerformanceProfile(profile: String) {
-        _uiState.update { it.copy(performanceProfile = profile) }
-        when (profile) {
-            "Power Save" -> { updateTdp(5f); updateManualClocks(1735f, 2246f, 160f) }
-            "Balanced" -> updateTdp(10f)
-            "Triple A" -> updateTdp(15f)
-            "Stock" -> { updateTdp(25f); updateManualClocks(3530f, 4320f, 1100f) }
-        }
-    }
-
     fun updateTdp(watts: Float) {
         _uiState.update { it.copy(tdpValue = watts) }
         performanceManager.applyDynamicTdp(watts)
@@ -163,6 +160,10 @@ class MainViewModel @Inject constructor(
     fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
         _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
         performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+    }
+
+    fun saveCustomProfile(name: String, type: String, val1: Float, val2: Float, val3: Float, val4: Float) {
+        prefs.saveCustomProfile(name, type, val1, val2, val3, val4)
     }
 
     fun updateGlobalLsfg(enabled: Boolean) {

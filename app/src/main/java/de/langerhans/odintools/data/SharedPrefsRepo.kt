@@ -136,6 +136,10 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getString(KEY_CURRENT_FG_APP, "global") ?: "global"
         set(value) = prefs.edit().putString(KEY_CURRENT_FG_APP, value).apply()
 
+    var useRootTarget: Boolean
+        get() = prefs.getBoolean(KEY_USE_ROOT_TARGET, false)
+        set(value) = prefs.edit().putBoolean(KEY_USE_ROOT_TARGET, value).apply()
+
     fun savePerAppConfig(packageName: String, tdp: Float, perfClock: Float, primeClock: Float, gpuClock: Float, reshade: String, sgsr: Boolean, sgsrMode: String, lsfg: Boolean) {
         prefs.edit()
             .putFloat("override_${packageName}_tdp", tdp)
@@ -197,5 +201,6 @@ class SharedPrefsRepo @Inject constructor(
         private const val KEY_RESHADE_PROFILE = "reshade_profile"
         private const val KEY_FPS_OVERLAY = "fps_overlay"
         private const val KEY_CURRENT_FG_APP = "current_foreground_app"
+        private const val KEY_USE_ROOT_TARGET = "use_root_target"
     }
 }
