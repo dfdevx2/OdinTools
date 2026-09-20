@@ -10,8 +10,11 @@ import javax.inject.Singleton
 class SharedPrefsRepo @Inject constructor(
     @ApplicationContext context: Context
 ) {
-    // Puxa as preferências padrão do sistema de forma segura, sem precisar de módulos externos do Hilt
     private val prefs: SharedPreferences = context.getSharedPreferences(context.packageName + "_preferences", Context.MODE_PRIVATE)
+
+    var isFirstRun: Boolean
+        get() = prefs.getBoolean(KEY_IS_FIRST_RUN, true)
+        set(value) = prefs.edit().putBoolean(KEY_IS_FIRST_RUN, value).apply()
 
     var disabledControllerStyle: String?
         get() = prefs.getString(KEY_DISABLED_CONTROLLER_STYLE, null)
@@ -65,16 +68,37 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getString(KEY_VIDEO_OUTPUT_L2R2_STYLE, null)
         set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
 
-    // Persistência Global para o Lossless Scaling e SGSR na aba Display (Anti-Reset)
+    // Persistência Global Odin Hub (Anti-Reset)
     var globalLsfgEnabled: Boolean
         get() = prefs.getBoolean(KEY_GLOBAL_LSFG_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_GLOBAL_LSFG_ENABLED, value).apply()
+
+    var lsfgMultiplier: String
+        get() = prefs.getString(KEY_LSFG_MULTIPLIER, "2x") ?: "2x"
+        set(value) = prefs.edit().putString(KEY_LSFG_MULTIPLIER, value).apply()
+
+    var lsfgFramePacing: Boolean
+        get() = prefs.getBoolean(KEY_LSFG_PACING, true)
+        set(value) = prefs.edit().putBoolean(KEY_LSFG_PACING, value).apply()
 
     var globalSgsrEnabled: Boolean
         get() = prefs.getBoolean(KEY_GLOBAL_SGSR_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_GLOBAL_SGSR_ENABLED, value).apply()
 
+    var sgsrMode: String
+        get() = prefs.getString(KEY_SGSR_MODE, "Quality") ?: "Quality"
+        set(value) = prefs.edit().putString(KEY_SGSR_MODE, value).apply()
+
+    var reshadeProfile: String
+        get() = prefs.getString(KEY_RESHADE_PROFILE, "Native") ?: "Native"
+        set(value) = prefs.edit().putString(KEY_RESHADE_PROFILE, value).apply()
+
+    var showFpsOverlay: Boolean
+        get() = prefs.getBoolean(KEY_FPS_OVERLAY, false)
+        set(value) = prefs.edit().putBoolean(KEY_FPS_OVERLAY, value).apply()
+
     companion object {
+        private const val KEY_IS_FIRST_RUN = "is_first_run"
         private const val KEY_DISABLED_CONTROLLER_STYLE = "disabled_controller_style"
         private const val KEY_DISABLED_L2R2_STYLE = "disabled_l2r2_style"
         private const val KEY_SATURATION_OVERRIDE = "saturation_override"
@@ -89,6 +113,11 @@ class SharedPrefsRepo @Inject constructor(
         private const val KEY_VIDEO_OUTPUT_CONTROLLER_STYLE = "video_output_controller_style"
         private const val KEY_VIDEO_OUTPUT_L2R2_STYLE = "video_output_l2r2_style"
         private const val KEY_GLOBAL_LSFG_ENABLED = "global_lsfg_enabled"
+        private const val KEY_LSFG_MULTIPLIER = "lsfg_multiplier"
+        private const val KEY_LSFG_PACING = "lsfg_pacing"
         private const val KEY_GLOBAL_SGSR_ENABLED = "global_sgsr_enabled"
+        private const val KEY_SGSR_MODE = "sgsr_mode"
+        private const val KEY_RESHADE_PROFILE = "reshade_profile"
+        private const val KEY_FPS_OVERLAY = "fps_overlay"
     }
 }

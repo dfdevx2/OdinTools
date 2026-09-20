@@ -59,13 +59,13 @@ data class MainUiModel(
     val sgsrMode: String = "Quality",
     val sgsrSharpness: Float = 0.5f,
     val reshadeProfile: String = "Native",
+    val showFpsOverlay: Boolean = false, // Propriedade adicionada
 
     // Estados Odin Hub - Overlay e DLL
     val isDllImported: Boolean = false,
     val overlayEnabled: Boolean = false
 )
 
-// Esta é a classe que faltava e que resolve os 32 erros do MainViewModel
 data class CheckboxPreferenceUiModel(
     val key: String,
     @StringRes val text: Int,
