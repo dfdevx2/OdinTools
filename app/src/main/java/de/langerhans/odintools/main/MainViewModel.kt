@@ -25,6 +25,7 @@ import de.langerhans.odintools.tools.hardware.DisplayManager
 import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.services.GamingOverlayService
+import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,7 +74,7 @@ class MainViewModel @Inject constructor(
                 currentSaturation = prefs.saturationOverride,
                 currentTemperature = prefs.temperatureOverride,
 
-                // Restaura estado real do banco de dados
+                // Restore physical database state
                 globalLsfgEnabled = prefs.globalLsfgEnabled,
                 lsfgMultiplier = prefs.lsfgMultiplier,
                 lsfgFramePacing = prefs.lsfgFramePacing,
@@ -84,6 +85,11 @@ class MainViewModel @Inject constructor(
                 isDllImported = losslessManager.isDllImported
             )
         }
+
+        // Push initial states to the C++ Vulkan Bridge
+        VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
+        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
+        VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
     }
 
     fun finishWelcomeSetup() {
@@ -106,7 +112,7 @@ class MainViewModel @Inject constructor(
     fun toggleFpsOverlay(enabled: Boolean) {
         prefs.showFpsOverlay = enabled
         _uiState.update { it.copy(showFpsOverlay = enabled) }
-        // Aqui integraremos a chamada para o overlay nativo Vulkan do LSFG
+        // FPS Overlay logic will be handled inside the Vulkan layer presentation hook
     }
 
     // Odin Hub - Performance
@@ -138,22 +144,26 @@ class MainViewModel @Inject constructor(
     fun updateGlobalLsfg(enabled: Boolean) {
         prefs.globalLsfgEnabled = enabled
         _uiState.update { it.copy(globalLsfgEnabled = enabled) }
+        VulkanNativeBridge.applyLsfg(enabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
     }
 
     fun updateLsfgOptions(multiplier: String, pacing: Boolean) {
         prefs.lsfgMultiplier = multiplier
         prefs.lsfgFramePacing = pacing
         _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing) }
+        VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing)
     }
 
     fun updateGlobalSgsr(enabled: Boolean) {
         prefs.globalSgsrEnabled = enabled
         _uiState.update { it.copy(globalSgsrEnabled = enabled) }
+        VulkanNativeBridge.applySgsr(enabled, prefs.sgsrMode)
     }
 
     fun updateSgsrOptions(mode: String) {
         prefs.sgsrMode = mode
         _uiState.update { it.copy(sgsrMode = mode) }
+        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode)
     }
 
     fun refreshDllStatus() {
@@ -164,27 +174,30 @@ class MainViewModel @Inject constructor(
         prefs.reshadeProfile = profile
         _uiState.update { it.copy(reshadeProfile = profile) }
 
-        // Corrigido: Para Voltar ao nativo, precisamos passar 1.0 e 6500 de volta.
         var sat = 1.0f
         var temp = 6500f
+
+        // Base screen calibration
         when (profile) {
             "Native", "Nativo" -> { sat = 1.0f; temp = 6500f }
             "Vibrant", "Vibrante" -> { sat = 1.3f; temp = 6800f }
             "Cinema" -> { sat = 0.85f; temp = 5500f }
             "Retro", "Retrô" -> { sat = 0.7f; temp = 7500f }
             "HDR Boost" -> { sat = 1.6f; temp = 6500f }
-            // Para Vulkan Layers reais (Anime Edge, CRT, etc), injetamos via setprop
-            "Anime Edge", "Game Clarity" -> {
-                executor.executeAsRoot("setprop debug.vulkan.layers VK_LAYER_reshade")
-            }
-        }
-
-        if (profile == "Native" || profile == "Nativo") {
-            executor.executeAsRoot("setprop debug.vulkan.layers \"\"") // Limpa camadas Vulkan
         }
 
         saveSaturation(sat)
         saveTemperature(temp)
+
+        // Push shader profile to Vulkan C++ layer
+        VulkanNativeBridge.applyReshade(profile, sat, temp)
+
+        // Inject Vulkan layer hook globally if an advanced shader is selected
+        if (profile == "Native" || profile == "Nativo") {
+            executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
+        } else {
+            executor.executeAsRoot("setprop debug.vulkan.layers VK_LAYER_ODIN_HUB")
+        }
     }
 
     fun saveSaturation(newValue: Float) {
@@ -199,7 +212,7 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(currentTemperature = newValue) }
     }
 
-    // Mantido funcoes originais (Remap, Vibration, etc)
+    // Native OdinTools Functions
     fun incompatibleDeviceDialogDismissed() { _uiState.update { it.copy(showIncompatibleDeviceDialog = false) } }
     fun updateSinglePressHomePreference(newValue: Boolean) { settings.preventPressHome = !newValue; _uiState.update { it.copy(singlePressHomeEnabled = newValue) } }
     fun showControllerStylePreference() { _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList(); _uiState.update { it.copy(showControllerStyleDialog = true) } }
