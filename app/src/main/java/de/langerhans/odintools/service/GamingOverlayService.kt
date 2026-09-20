@@ -21,8 +21,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -47,7 +52,7 @@ class GamingOverlayService : Service() {
 
             setContent {
                 var isExpanded by remember { mutableStateOf(false) }
-                val width by animateDpAsState(if (isExpanded) 360.dp else 24.dp)
+                val width by animateDpAsState(if (isExpanded) 360.dp else 24.dp, label = "widthAnim")
                 val bgColor = if (isExpanded) Color(0xEE0F1115) else Color(0x88000000)
 
                 Box(
@@ -85,4 +90,18 @@ class GamingOverlayService : Service() {
         super.onDestroy()
         overlayView?.let { windowManager.removeView(it) }
     }
+}
+
+// A classe auxiliar que faltava para gerir o ciclo de vida do Compose dentro do Serviço
+private class ServiceLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+
+    init {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        savedStateRegistryController.performRestore(null)
+    }
+
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
+    override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 }
