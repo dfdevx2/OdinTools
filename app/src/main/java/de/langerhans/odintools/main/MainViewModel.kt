@@ -46,7 +46,6 @@ class MainViewModel @Inject constructor(
     val uiState: StateFlow<MainUiModel> = _uiState.asStateFlow()
 
     init {
-        settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
         _uiState.update {
@@ -113,6 +112,20 @@ class MainViewModel @Inject constructor(
         // configuração da camada Vulkan/ReShade/SGSR/LSFG chega ao sistema uma fração de segundo
         // depois, sem bloquear nada.
         viewModelScope.launch(Dispatchers.IO) {
+            // Achado ao investigar por que o arranque travava ESPECIFICAMENTE no Odin 3 (mesma
+            // build abria normal no emulador do Android Studio e noutro aparelho): esta chamada
+            // continuava a correr de forma síncrona aqui no `init {}`, na thread principal --
+            // `enableA11yService`/`grantAllAppsPermission`/`addOdinToolsToWhitelist` fazem vários
+            // `exec` root cada uma. No Odin 3 do utilizador havia bem mais coisa a correr em
+            // segundo plano (launcher próprio "Cocoon", Discord RPC, etc.) do que no emulador --
+            // mais contenção à volta do daemon root, cada `exec` mais lento, e a soma facilmente
+            // ultrapassa a janela antes do sistema desistir de esperar pela thread principal
+            // (visível no logcat como "Activity pause timeout"/"top resumed state loss timeout",
+            // e o processo ficava congelado tão cedo que nem chegava a emitir os logs mais básicos
+            // do Android). Mesma causa raiz da Parte 5, só que numa chamada que tinha escapado
+            // daquela ronda.
+            settings.applyRequiredSettings()
+
             executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
             executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
             graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
