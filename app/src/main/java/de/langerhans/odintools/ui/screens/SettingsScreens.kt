@@ -62,7 +62,10 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrideList: () -> Unit) {
-    val uiState: MainUiModel by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var isFirstRun by rememberSaveable { mutableStateOf(true) }
@@ -77,110 +80,18 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     val rawTheme = AvailableThemes.getOrElse(currentThemeIndex) { AvailableThemes[0] }
     val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
 
-    var bgmEnabled by rememberSaveable { mutableStateOf(true) }
-    var bgmVolume by rememberSaveable { mutableFloatStateOf(0.3f) }
-    var sfxEnabled by rememberSaveable { mutableStateOf(true) }
-    var sfxVolume by rememberSaveable { mutableFloatStateOf(0.8f) }
-
-    val context = LocalContext.current
-    val defaultStaticRes = R.drawable.static_wallpaper_1
-    val defaultVideoUri = remember { Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}") }
-
     var liveWallpaperType by rememberSaveable { mutableStateOf("Static") }
     var blurEnabled by rememberSaveable { mutableStateOf(true) }
     var blurIntensity by rememberSaveable { mutableFloatStateOf(0.4f) }
     var wallpaperOpacity by rememberSaveable { mutableFloatStateOf(0.85f) }
 
-    var selectedStaticRes by rememberSaveable { mutableIntStateOf(defaultStaticRes) }
+    var selectedStaticRes by rememberSaveable { mutableIntStateOf(R.drawable.static_wallpaper_1) }
     var selectedCustomUriString by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedCustomUri = selectedCustomUriString?.let { Uri.parse(it) }
     var selectedWallpaperName by rememberSaveable { mutableStateOf(if (isEn) "Preset 1" else "Predefinição 1") }
 
-    val haptic = LocalHapticFeedback.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-
     fun playSfx(resId: Int) {
-        if (sfxEnabled) {
-            runCatching {
-                MediaPlayer.create(context, resId)?.apply {
-                    setVolume(sfxVolume, sfxVolume)
-                    setOnCompletionListener { release() }
-                    start()
-                }
-            }
-        }
-    }
-
-    val bgmPlayer = remember {
-        runCatching { MediaPlayer.create(context, R.raw.bgm_1)?.apply { isLooping = true } }.getOrNull()
-    }
-
-    LaunchedEffect(bgmVolume) {
-        bgmPlayer?.setVolume(bgmVolume, bgmVolume)
-    }
-
-    LaunchedEffect(bgmEnabled, showWelcomeSetup, showBootAnimation) {
-        if (bgmPlayer != null) {
-            if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) {
-                if (!bgmPlayer.isPlaying) bgmPlayer.start()
-            } else {
-                if (bgmPlayer.isPlaying) bgmPlayer.pause()
-            }
-        }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (bgmPlayer != null) {
-                if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
-                    if (bgmPlayer.isPlaying) bgmPlayer.pause()
-                } else if (event == Lifecycle.Event.ON_RESUME) {
-                    if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) bgmPlayer.start()
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { bgmPlayer?.release() }
-    }
-
-    if (uiState.showSaveProfileDialog) {
-        var profileName by rememberSaveable { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissSaveProfileDialog() },
-            title = { Text(if (isEn) "Save Custom Profile" else "Salvar Perfil Personalizado", fontFamily = finalTheme.fontFamily) },
-            text = {
-                OutlinedTextField(
-                    value = profileName,
-                    onValueChange = { profileName = it },
-                    label = { Text(if (isEn) "Profile Name" else "Nome do Perfil", fontFamily = finalTheme.fontFamily) },
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    viewModel.saveCustomProfile(profileName)
-                    playSfx(R.raw.sfx_select)
-                }) {
-                    Text(if (isEn) "Save" else "Salvar", color = finalTheme.primary, fontFamily = finalTheme.fontFamily)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    viewModel.dismissSaveProfileDialog()
-                }) {
-                    Text(if (isEn) "Cancel" else "Cancelar", color = finalTheme.text, fontFamily = finalTheme.fontFamily)
-                }
-            },
-            containerColor = finalTheme.surface,
-            titleContentColor = finalTheme.text,
-            textContentColor = finalTheme.text
-        )
+        runCatching { MediaPlayer.create(context, resId)?.apply { setVolume(0.8f, 0.8f); setOnCompletionListener { release() }; start() } }
     }
 
     if (showWelcomeSetup) {
@@ -188,179 +99,51 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             theme = finalTheme,
             currentThemeIndex = currentThemeIndex,
             currentLanguage = currentLanguage,
-            bgmEnabled = bgmEnabled,
-            bgmVolume = bgmVolume,
-            sfxEnabled = sfxEnabled,
-            sfxVolume = sfxVolume,
-            onThemeChange = { currentThemeIndex = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
-            onLanguageChange = { currentLanguage = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
-            onBgmToggle = { bgmEnabled = it },
-            onBgmVolume = { bgmVolume = it },
-            onSfxToggle = { sfxEnabled = it },
-            onSfxVolume = { sfxVolume = it },
-            onFinish = {
-                isFirstRun = false
-                showWelcomeSetup = false
-                showBootAnimation = true
-            }
+            bgmEnabled = true, bgmVolume = 0.3f, sfxEnabled = true, sfxVolume = 0.8f,
+            onThemeChange = { currentThemeIndex = it },
+            onLanguageChange = { currentLanguage = it },
+            onBgmToggle = { }, onBgmVolume = { }, onSfxToggle = { }, onSfxVolume = { },
+            onFinish = { isFirstRun = false; showWelcomeSetup = false; showBootAnimation = true }
         )
         return
     }
 
-    if (showBootAnimation) {
-        VideoBootScreen(
-            theme = finalTheme,
-            onVideoEnded = {
-                showBootAnimation = false
-                playSfx(R.raw.sfx_select)
-            }
-        )
-        return
-    }
+    Crossfade(targetState = showBootAnimation, animationSpec = tween(800), label = "BootTransition") { isBooting ->
+        if (isBooting) {
+            VideoBootScreen(theme = finalTheme, onVideoEnded = { showBootAnimation = false; playSfx(R.raw.sfx_select) })
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(finalTheme.background)) {
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(finalTheme.background))
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .alpha(wallpaperOpacity)
-        ) {
-            if (liveWallpaperType == "Live (MP4)") {
-                val activeVideoUri = if (selectedCustomUri != null && selectedCustomUri.toString().startsWith("content://")) {
-                    selectedCustomUri!!
-                } else {
-                    defaultVideoUri
-                }
-                LiveWallpaperRenderer(uri = activeVideoUri)
-
-                if (blurEnabled) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.2f + (blurIntensity * 0.5f)),
-                                        Color.Black.copy(alpha = 0.4f + (blurIntensity * 0.5f))
-                                    )
-                                )
-                            )
-                    )
-                }
-            } else {
-                StaticWallpaperRenderer(
-                    resId = if (selectedCustomUri == null) selectedStaticRes else null,
-                    uri = if (selectedCustomUri != null) selectedCustomUri else null,
-                    blurModifier = if (blurEnabled) Modifier.blur((blurIntensity * 40).dp) else Modifier
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            finalTheme.background.copy(alpha = 0.4f),
-                            Color.Black.copy(alpha = 0.85f)
-                        )
-                    )
-                )
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .onPreviewKeyEvent { event ->
-                    if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
-                        when (event.nativeKeyEvent.keyCode) {
-                            android.view.KeyEvent.KEYCODE_BUTTON_R1 -> {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                playSfx(R.raw.sfx_nav)
-                                selectedTab = (selectedTab + 1).coerceAtMost(3)
-                                true
-                            }
-                            android.view.KeyEvent.KEYCODE_BUTTON_L1 -> {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                playSfx(R.raw.sfx_nav)
-                                selectedTab = (selectedTab - 1).coerceAtLeast(0)
-                                true
-                            }
-                            else -> false
+                Box(modifier = Modifier.fillMaxSize().alpha(wallpaperOpacity)) {
+                    if (liveWallpaperType == "Live (MP4)") {
+                        val activeVideoUri = if (selectedCustomUri != null && selectedCustomUri.toString().startsWith("content://")) selectedCustomUri else Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}")
+                        LiveWallpaperRenderer(uri = activeVideoUri)
+                        if (blurEnabled) {
+                            Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(Color.Black.copy(alpha = 0.2f + (blurIntensity * 0.5f)), Color.Black.copy(alpha = 0.4f + (blurIntensity * 0.5f))))))
                         }
-                    } else false
+                    } else {
+                        StaticWallpaperRenderer(resId = if (selectedCustomUri == null) selectedStaticRes else null, uri = if (selectedCustomUri != null) selectedCustomUri else null, blurModifier = if (blurEnabled) Modifier.blur((blurIntensity * 40).dp) else Modifier)
+                    }
                 }
-        ) {
-            Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
-                Text(
-                    text = "ODIN HUB",
-                    fontSize = 28.sp,
-                    fontFamily = finalTheme.fontFamily,
-                    fontWeight = FontWeight.Black,
-                    color = finalTheme.primary,
-                    letterSpacing = 2.sp,
-                    modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp)
-                )
-                ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn) {
-                    if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
-                }
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = {
-                        if (targetState > initialState) {
-                            slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeIn(tween(300)) togetherWith
-                                slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeOut(tween(300))
-                        } else {
-                            slideInHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> -width } + fadeIn(tween(300)) togetherWith
-                                slideOutHorizontally(animationSpec = tween(300, easing = FastOutSlowInEasing)) { width -> width } + fadeOut(tween(300))
+
+                Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(finalTheme.background.copy(alpha = 0.4f), Color.Black.copy(alpha = 0.85f)))))
+
+                Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                    Text("ODIN HUB", fontSize = 28.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 2.sp, modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp))
+                    ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn) { if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } }
+
+                    AnimatedContent(
+                        targetState = selectedTab,
+                        transitionSpec = { slideInHorizontally { width -> width } + fadeIn() togetherWith slideOutHorizontally { width -> -width } + fadeOut() },
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
+                        label = "tab_anim"
+                    ) { targetTab ->
+                        when (targetTab) {
+                            0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
+                            1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                            2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                            3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage, onThemeChange = { currentThemeIndex = it }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { useAmoledBlack = it }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
-                    label = "tab_animation"
-                ) { targetTab ->
-                    when (targetTab) {
-                        0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
-                        1 -> DisplayPanel(viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                        2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                        3 -> SystemPanel(
-                            theme = finalTheme, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage, isEn = isEn,
-                            amoledBlack = useAmoledBlack, bgmEnabled = bgmEnabled, bgmVolume = bgmVolume, sfxEnabled = sfxEnabled, sfxVolume = sfxVolume,
-                            liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity,
-                            selectedWallpaperName = selectedWallpaperName,
-                            playClick = { playSfx(R.raw.sfx_select) }, onThemeChange = { currentThemeIndex = it }, onLanguageChange = { currentLanguage = it },
-                            onAmoledToggle = { useAmoledBlack = it; playSfx(R.raw.sfx_select) },
-                            onBgmToggle = { bgmEnabled = it; playSfx(R.raw.sfx_select) }, onBgmVolume = { bgmVolume = it },
-                            onSfxToggle = { sfxEnabled = it; playSfx(R.raw.sfx_select) }, onSfxVolume = { sfxVolume = it },
-                            onReplayBoot = { showWelcomeSetup = true; playSfx(R.raw.sfx_select) },
-                            onLiveWallpaperTypeChange = { type ->
-                                liveWallpaperType = type
-                                if (type == "Live (MP4)") {
-                                    selectedCustomUriString = null
-                                    selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão"
-                                } else {
-                                    selectedCustomUriString = null
-                                    selectedStaticRes = R.drawable.static_wallpaper_1
-                                    selectedWallpaperName = if (isEn) "Preset 1" else "Predefinição 1"
-                                }
-                            },
-                            onBlurToggle = { blurEnabled = it; playSfx(R.raw.sfx_select) }, onBlurIntensityChange = { blurIntensity = it },
-                            onWallpaperOpacityChange = { wallpaperOpacity = it },
-                            onPresetStaticSelected = { resId, name ->
-                                selectedCustomUriString = null
-                                selectedStaticRes = resId
-                                selectedWallpaperName = name
-                            },
-                            onPresetVideoSelected = {
-                                selectedCustomUriString = null
-                                selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão"
-                            },
-                            onCustomUriSelected = { uri, name ->
-                                selectedCustomUriString = uri.toString()
-                                selectedWallpaperName = name
-                            }
-                        )
                     }
                 }
             }
@@ -371,28 +154,10 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 @Composable
 fun LiveWallpaperRenderer(uri: Uri) {
     val context = LocalContext.current
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ALL
-            volume = 0f
-        }
-    }
-    LaunchedEffect(uri) {
-        exoPlayer.setMediaItem(MediaItem.fromUri(uri))
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
-    }
+    val exoPlayer = remember { ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ALL; volume = 0f } }
+    LaunchedEffect(uri) { exoPlayer.setMediaItem(MediaItem.fromUri(uri)); exoPlayer.prepare(); exoPlayer.playWhenReady = true }
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
-    AndroidView(
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                player = exoPlayer
-                useController = false
-                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            }
-        },
-        modifier = Modifier.fillMaxSize()
-    )
+    AndroidView(factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer; useController = false; resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM } }, modifier = Modifier.fillMaxSize())
 }
 
 @Composable
@@ -414,14 +179,10 @@ fun StaticWallpaperRenderer(resId: Int?, uri: Uri?, blurModifier: Modifier = Mod
                     val source = ImageDecoder.createSource(context.contentResolver, uri)
                     bitmap = ImageDecoder.decodeBitmap(source).asImageBitmap()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
     }
-    bitmap?.let {
-        Image(bitmap = it, contentDescription = "Static Wallpaper", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().then(blurModifier))
-    }
+    bitmap?.let { Image(bitmap = it, contentDescription = "Static Wallpaper", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().then(blurModifier)) }
 }
 
 @Composable
@@ -433,25 +194,12 @@ fun VideoBootScreen(theme: ConsoleTheme, onVideoEnded: () -> Unit) {
             setMediaItem(MediaItem.fromUri(videoUri))
             prepare()
             playWhenReady = true
-            addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) onVideoEnded()
-                }
-            })
+            addListener(object : Player.Listener { override fun onPlaybackStateChanged(playbackState: Int) { if (playbackState == Player.STATE_ENDED) onVideoEnded() } })
         }
     }
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                }
-            },
-            modifier = Modifier.matchParentSize()
-        )
+        AndroidView(factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer; useController = false; resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM } }, modifier = Modifier.matchParentSize())
     }
 }
 
@@ -469,10 +217,7 @@ fun ConsoleMenuBar(selectedTab: Int, theme: ConsoleTheme, isEn: Boolean, onTabSe
 fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, theme: ConsoleTheme, onClick: (Int) -> Unit) {
     val isSelected = selectedTab == index
     val color by animateColorAsState(if (isSelected) theme.primary else theme.text.copy(alpha = 0.4f), label = "tabColor")
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick(index) }.padding(8.dp)
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick(index) }.padding(8.dp)) {
         Icon(painterResource(iconResId), contentDescription = title, tint = color, modifier = Modifier.size(28.dp))
         Spacer(modifier = Modifier.height(4.dp))
         Text(title, color = color, fontSize = 12.sp, fontFamily = theme.fontFamily, fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold, letterSpacing = 1.sp)
@@ -483,236 +228,36 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 @Composable
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    var activeLimitMode by rememberSaveable { mutableStateOf("TDP") }
-
-    var expandedTdpProfile by rememberSaveable { mutableStateOf(false) }
-    var expandedClockProfile by rememberSaveable { mutableStateOf(false) }
-    var expandedFanProfile by rememberSaveable { mutableStateOf(false) }
-
-    var selectedClockProfileName by rememberSaveable { mutableStateOf("Stock (Padrão AYN)") }
-    var selectedFanProfileName by rememberSaveable { mutableStateOf("Smart (Balanceado)") }
-
-    var showClockSaveDialog by rememberSaveable { mutableStateOf(false) }
-    var customClockNameInput by rememberSaveable { mutableStateOf("") }
-
-    val fanProfiles = listOf("Silent (Silencioso)", "Smart (Balanceado)", "Sport (Desempenho Máximo)", "Stock (Padrão)")
-    val clockPresets = listOf("Power Save (Underclock Seguro)", "Balanced (Intermediário)", "Triple A (Alto Desempenho)", "Stock (Padrão AYN)")
-    val tdpPresets = listOf("Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock (Padrão AYN)")
-
-    val allTdpProfiles = tdpPresets + uiState.savedCustomProfiles
-    var savedCustomClockProfiles by remember { mutableStateOf(listOf<String>()) }
-
-    val isTdpMode = activeLimitMode == "TDP"
-    val isClockMode = activeLimitMode == "CLOCK"
+    val isTdpMode = uiState.activeLimitMode == "TDP"
+    val isClockMode = uiState.activeLimitMode == "CLOCK"
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
         ConsoleSectionHeader(if (isEn) "Engine & Optimization" else "Motor e Otimização", theme)
-        ConsoleCard(if (isEn) "KSU Module Integration" else "Módulo KSU", if (isEn) "Toggle if Odin Hub KSU module is installed" else "Ative se instalou o Módulo KSU (Remove overhead)", theme, playClick = playClick) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (uiState.useRootTarget) "Módulo KSU (Sem Overhead)" else "Modo Pulse (Loop PServer)", color = theme.text, fontFamily = theme.fontFamily)
-                ConsoleToggle(checked = uiState.useRootTarget, theme = theme, onCheckedChange = { viewModel.updateUseRoot(it); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick() })
-            }
-        }
-
-        ConsoleSectionHeader(if (isEn) "Cooling & Fan Control" else "Controle de Ventoinha (Cooler)", theme)
-        ConsoleCard(if (isEn) "Fan Speed Profiles" else "Perfis de Ventoinha", selectedFanProfileName, theme, playClick = { expandedFanProfile = true; playClick() }) {
-            DropdownMenu(expanded = expandedFanProfile, onDismissRequest = { expandedFanProfile = false }, modifier = Modifier.background(theme.surface)) {
-                fanProfiles.forEach { profile ->
-                    DropdownMenuItem(
-                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            selectedFanProfileName = profile
-                            expandedFanProfile = false
-                            viewModel.setFanMode(profile)
-                            playClick()
-                        }
-                    )
+        ConsoleCard(if (isEn) "Hardware Limitation Mode" else "Modo de Limitação de Hardware", "TDP vs Clock", theme) {
+            Row(modifier = Modifier.fillMaxWidth().padding(8.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(4.dp)) {
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("TDP"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    Text(if (isEn) "Lock by TDP" else "Limitar por TDP", color = if (isTdpMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
+                }
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isClockMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("CLOCK"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    Text(if (isEn) "Lock by Clocks" else "Limitar por Clocks", color = if (isClockMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
                 }
             }
         }
 
-        ConsoleSectionHeader(if (isEn) "Hardware Limitation Mode" else "Modo de Limitação de Hardware", theme)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(alpha = 0.3f))
-                .border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent)
-                    .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        activeLimitMode = "TDP"
-                        viewModel.updateManualClocks(3530f, 4320f, 1100f)
-                        playClick()
-                    }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (isEn) "Lock by TDP" else "Limitar por TDP", color = if (isTdpMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isClockMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent)
-                    .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        activeLimitMode = "CLOCK"
-                        viewModel.updatePerformanceProfile("Stock")
-                        playClick()
-                    }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (isEn) "Lock by Clocks" else "Limitar por Clocks", color = if (isClockMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
-            }
+        ConsoleCard("Dynamic AutoTDP Control", "Limit: ${uiState.tdpValue.toInt()} W", theme, enabled = isTdpMode) {
+            Slider(value = uiState.tdpValue, onValueChange = { viewModel.updateTdp(it) }, valueRange = 5f..25f, enabled = isTdpMode, modifier = Modifier.padding(horizontal = 16.dp))
         }
 
-        ConsoleCard(
-            title = if (isEn) "Dynamic AutoTDP Control" else "Controle Dinâmico AutoTDP",
-            subtitle = if (isEn) "Monitors FPS and automatically trims TDP. Disabled when Clock Mode is active." else "Monitora o FPS e ajusta o TDP dinamicamente. Fica desativado se o Modo Clock estiver ativo.",
-            theme = theme,
-            playClick = null,
-            enabled = isTdpMode
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(if (isEn) "Limit: ${uiState.tdpValue.toInt()} W" else "Limite de TDP: ${uiState.tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(
-                    value = uiState.tdpValue,
-                    onValueChange = { viewModel.updateTdp(it) },
-                    valueRange = 5f..25f,
-                    steps = 20,
-                    enabled = isTdpMode,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
-            }
-        }
-
-        ConsoleCard(
-            title = if (isEn) "TDP Preset Selection" else "Seleção de Perfil de TDP",
-            subtitle = uiState.performanceProfile,
-            theme = theme,
-            playClick = { if (isTdpMode) { expandedTdpProfile = true; playClick() } },
-            enabled = isTdpMode
-        ) {
-            DropdownMenu(expanded = expandedTdpProfile && isTdpMode, onDismissRequest = { expandedTdpProfile = false }, modifier = Modifier.background(theme.surface)) {
-                allTdpProfiles.distinct().forEach { profile ->
-                    DropdownMenuItem(
-                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.updatePerformanceProfile(profile)
-                            if (profile.contains("5W")) viewModel.updateTdp(5f)
-                            else if (profile.contains("11W")) viewModel.updateTdp(11f)
-                            else if (profile.contains("14.5W")) viewModel.updateTdp(14.5f)
-                            expandedTdpProfile = false
-                            playClick()
-                        }
-                    )
-                }
-            }
-
-            Button(
-                onClick = { if (isTdpMode) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.showSaveProfileDialog(); playClick() } },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
-                enabled = isTdpMode,
-                colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
-            ) {
-                Text(if (isEn) "Save Current TDP as Custom Profile..." else "Salvar TDP Atual como Perfil Personalizado...", fontFamily = theme.fontFamily, color = Color.White)
-            }
-        }
-
-        ConsoleCard(
-            title = if (isEn) "Clock Profile Presets" else "Perfis de Frequência / Underclock",
-            subtitle = selectedClockProfileName,
-            theme = theme,
-            playClick = { if (isClockMode) { expandedClockProfile = true; playClick() } },
-            enabled = isClockMode
-        ) {
-            DropdownMenu(expanded = expandedClockProfile && isClockMode, onDismissRequest = { expandedClockProfile = false }, modifier = Modifier.background(theme.surface)) {
-                (clockPresets + savedCustomClockProfiles).distinct().forEach { profile ->
-                    DropdownMenuItem(
-                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            selectedClockProfileName = profile
-
-                            if (profile.contains("Power Save")) {
-                                viewModel.updateManualClocks(1735f, 2246f, 1100f)
-                            } else if (profile.contains("Balanced")) {
-                                viewModel.updateManualClocks(2400f, 3081f, 1100f)
-                            } else if (profile.contains("Triple A")) {
-                                viewModel.updateManualClocks(3081f, 3880f, 1100f)
-                            } else if (profile.contains("Stock")) {
-                                viewModel.updateManualClocks(3530f, 4320f, 1100f)
-                            }
-                            expandedClockProfile = false
-                            playClick()
-                        }
-                    )
-                }
-            }
-
-            Button(
-                onClick = { if (isClockMode) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); showClockSaveDialog = true; playClick() } },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
-                enabled = isClockMode,
-                colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
-            ) {
-                Text(if (isEn) "Save Current Clocks as Custom Profile..." else "Salvar Clocks Atuais como Perfil...", fontFamily = theme.fontFamily, color = Color.White)
-            }
-        }
-
-        ConsoleCard(
-            title = if (isEn) "Discrete Manual Clocks Slider" else "Sliding de Frequência por Cluster",
-            subtitle = if (isEn) "Individual precise steps per architecture" else "Passos discretos otimizados por arquitetura",
-            theme = theme,
-            playClick = null,
-            enabled = isClockMode
-        ) {
+        ConsoleCard("Discrete Manual Clocks", "Perf Cores: ${uiState.cpuPerfClock.toInt()} MHz", theme, enabled = isClockMode) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(if (isEn) "Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz" else "Núcleos de Performance (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(
-                    value = uiState.cpuPerfClock,
-                    onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) },
-                    valueRange = 1735f..3530f,
-                    steps = 15,
-                    enabled = isClockMode,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
-
+                Slider(value = uiState.cpuPerfClock, onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) }, valueRange = 1735f..3530f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 Spacer(modifier = Modifier.height(12.dp))
-
                 Text(if (isEn) "Prime Cores (2x): ${uiState.cpuPrimeClock.toInt()} MHz" else "Núcleos Prime (2x): ${uiState.cpuPrimeClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(
-                    value = uiState.cpuPrimeClock,
-                    onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) },
-                    valueRange = 2246f..4320f,
-                    steps = 15,
-                    enabled = isClockMode,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
-
+                Slider(value = uiState.cpuPrimeClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) }, valueRange = 2246f..4320f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 Spacer(modifier = Modifier.height(12.dp))
-
                 Text("Adreno GPU: ${uiState.gpuClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(
-                    value = uiState.gpuClock,
-                    onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) },
-                    valueRange = 160f..1100f,
-                    steps = 18,
-                    enabled = isClockMode,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
+                Slider(value = uiState.gpuClock, onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) }, valueRange = 160f..1100f, enabled = isClockMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
 
@@ -725,164 +270,43 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.appOverrides, description = R.string.appOverridesDescription) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); navigateToOverrideList() }
         }
     }
-
-    if (showClockSaveDialog) {
-        AlertDialog(
-            onDismissRequest = { showClockSaveDialog = false },
-            title = { Text(if (isEn) "Save Custom Clock Profile" else "Salvar Perfil de Clock Personalizado", fontFamily = theme.fontFamily) },
-            text = {
-                OutlinedTextField(
-                    value = customClockNameInput,
-                    onValueChange = { customClockNameInput = it },
-                    label = { Text(if (isEn) "Profile Name (e.g. PS2 Heavy)" else "Nome do Perfil (Ex: PS2 Pesado)", fontFamily = theme.fontFamily) },
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (customClockNameInput.isNotBlank()) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        savedCustomClockProfiles = savedCustomClockProfiles + customClockNameInput
-                        selectedClockProfileName = customClockNameInput
-                        customClockNameInput = ""
-                        showClockSaveDialog = false
-                        playClick()
-                    }
-                }) {
-                    Text(if (isEn) "Save" else "Salvar", color = theme.primary, fontFamily = theme.fontFamily)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); showClockSaveDialog = false }) {
-                    Text(if (isEn) "Cancel" else "Cancelar", color = theme.text, fontFamily = theme.fontFamily)
-                }
-            },
-            containerColor = theme.surface,
-            titleContentColor = theme.text,
-            textContentColor = theme.text
-        )
-    }
 }
 
 @Composable
-fun DisplayPanel(viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
+fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-
-    var satValue by rememberSaveable { mutableFloatStateOf(1.0f) }
-    var tempValue by rememberSaveable { mutableFloatStateOf(6500f) }
-    var expandedProfile by rememberSaveable { mutableStateOf(false) }
-    val profiles = if (isEn) listOf("Native", "Vibrant", "Cinema", "Retro") else listOf("Nativo", "Vibrante", "Cinema", "Retrô")
-    var selectedProfile by rememberSaveable { mutableStateOf(profiles[0]) }
-
-    var lsfgEnabled by rememberSaveable { mutableStateOf(false) }
-    var lsfgMultiplier by rememberSaveable { mutableStateOf("2x") }
-    var expandedLsfgMult by rememberSaveable { mutableStateOf(false) }
-    val lsfgMultOptions = listOf("2x", "3x", "4x")
-    var lsfgFramePacing by rememberSaveable { mutableStateOf(true) }
-    var lsfgQuality by rememberSaveable { mutableFloatStateOf(1.0f) }
-
-    var sgsrEnabled by rememberSaveable { mutableStateOf(false) }
-    var sgsrMode by rememberSaveable { mutableStateOf("Quality") }
-    var expandedSgsrMode by rememberSaveable { mutableStateOf(false) }
-    val sgsrModes = listOf("Quality", "Balanced", "Performance", "Ultra Performance")
-    var sgsrSharpness by rememberSaveable { mutableFloatStateOf(0.5f) }
+    val profiles = listOf("Native", "Vibrant", "Cinema", "Retro", "HDR Boost")
+    var expandedProfile by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
         ConsoleSectionHeader(if (isEn) "Upscaling & Frame Generation" else "Upscaling e Geração de Quadros", theme)
 
-        ConsoleCard(
-            title = "Lossless Scaling (Frame Gen)",
-            subtitle = if (isEn) "Injects interpolated frames to multiply FPS" else "Injeta quadros interpolados para multiplicar o FPS",
-            theme = theme,
-            playClick = null
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isEn) "Enable LSFG" else "Ativar LSFG", color = theme.text, fontFamily = theme.fontFamily)
-                    ConsoleToggle(checked = lsfgEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lsfgEnabled = it; playClick() })
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isEn) "Multiplier" else "Multiplicador de Quadros", color = theme.text, fontFamily = theme.fontFamily)
-                    Box {
-                        Text(lsfgMultiplier, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (lsfgEnabled) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); expandedLsfgMult = true; playClick() } }.alpha(if(lsfgEnabled) 1f else 0.5f))
-                        DropdownMenu(expanded = expandedLsfgMult && lsfgEnabled, onDismissRequest = { expandedLsfgMult = false }, modifier = Modifier.background(theme.surface)) {
-                            lsfgMultOptions.forEach { mult ->
-                                DropdownMenuItem(text = { Text(mult, color = theme.text) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lsfgMultiplier = mult; expandedLsfgMult = false; playClick() })
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isEn) "Frame Pacing" else "Sincronia de Quadros (Pacing)", color = theme.text, fontFamily = theme.fontFamily)
-                    ConsoleToggle(checked = lsfgFramePacing, theme = theme, onCheckedChange = { if(lsfgEnabled) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lsfgFramePacing = it; playClick() } })
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(if (isEn) "Generation Quality: ${(lsfgQuality * 100).toInt()}%" else "Qualidade de Geração: ${(lsfgQuality * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = lsfgQuality, onValueChange = { lsfgQuality = it }, valueRange = 0.5f..1.0f, enabled = lsfgEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+        ConsoleCard("Lossless Scaling (Global)", if (uiState.isDllImported) "DLL Integrada e Pronta" else "ATENÇÃO: Lossless.dll ausente. Importe na aba Sistema.", theme) {
+            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (isEn) "Enable LSFG Globally" else "Ativar LSFG Globalmente", color = theme.text, fontFamily = theme.fontFamily)
+                ConsoleToggle(checked = uiState.globalLsfgEnabled, theme = theme, onCheckedChange = { if (uiState.isDllImported) { viewModel.updateGlobalLsfg(it); playClick() } })
             }
         }
 
-        ConsoleCard(
-            title = "Snapdragon Super Resolution (SGSR)",
-            subtitle = if (isEn) "Spatial upscaling for performance boost" else "Upscaling espacial para ganho de performance",
-            theme = theme,
-            playClick = null
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isEn) "Enable SGSR" else "Ativar SGSR", color = theme.text, fontFamily = theme.fontFamily)
-                    ConsoleToggle(checked = sgsrEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); sgsrEnabled = it; playClick() })
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isEn) "Upscaling Mode" else "Modo de Upscaling", color = theme.text, fontFamily = theme.fontFamily)
-                    Box {
-                        Text(sgsrMode, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (sgsrEnabled) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); expandedSgsrMode = true; playClick() } }.alpha(if(sgsrEnabled) 1f else 0.5f))
-                        DropdownMenu(expanded = expandedSgsrMode && sgsrEnabled, onDismissRequest = { expandedSgsrMode = false }, modifier = Modifier.background(theme.surface)) {
-                            sgsrModes.forEach { mode ->
-                                DropdownMenuItem(text = { Text(mode, color = theme.text) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); sgsrMode = mode; expandedSgsrMode = false; playClick() })
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(if (isEn) "Sharpness: ${(sgsrSharpness * 100).toInt()}%" else "Nitidez (Sharpness): ${(sgsrSharpness * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(value = sgsrSharpness, onValueChange = { sgsrSharpness = it }, valueRange = 0.0f..1.0f, enabled = sgsrEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+        ConsoleCard("Snapdragon Super Resolution (Global)", "Spatial upscaling", theme) {
+            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (isEn) "Enable SGSR Globally" else "Ativar SGSR Globalmente", color = theme.text, fontFamily = theme.fontFamily)
+                ConsoleToggle(checked = uiState.globalSgsrEnabled, theme = theme, onCheckedChange = { viewModel.updateGlobalSgsr(it); playClick() })
             }
         }
 
         ConsoleSectionHeader(if (isEn) "ReShade & Color Calibration" else "ReShade e Calibração de Tela", theme)
-        ConsoleCard(if (isEn) "Global Image Profiles" else "Perfis de Imagem Global", selectedProfile, theme, playClick = { expandedProfile = true; playClick() }) {
+        ConsoleCard(if (isEn) "Global Image Profiles" else "Perfis de Imagem Global", uiState.reshadeProfile, theme, playClick = { expandedProfile = true; playClick() }) {
             DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
-                profiles.forEach { profile -> DropdownMenuItem(text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); selectedProfile = profile; expandedProfile = false; playClick() }) }
+                profiles.forEach { profile -> DropdownMenuItem(text = { Text(profile, color = theme.text) }, onClick = { viewModel.applyReshadeProfile(profile); expandedProfile = false; playClick() }) }
             }
         }
-        ConsoleCard(if (isEn) "Manual Adjustments" else "Ajustes Manuais", if (isEn) "Saturation & Temperature" else "Saturação e Temperatura", theme, playClick = null) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text((if (isEn) "Saturation: " else "Saturação: ") + "${"%.1f".format(satValue)}", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(
-                    value = satValue,
-                    onValueChange = {
-                        satValue = it
-                        viewModel.saveSaturation(it)
-                    },
-                    valueRange = 0.0f..2.0f,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text((if (isEn) "Temperature: " else "Temperatura: ") + "${tempValue.toInt()}K", color = theme.text, fontFamily = theme.fontFamily)
-                Slider(
-                    value = tempValue,
-                    onValueChange = {
-                        tempValue = it
-                        viewModel.saveTemperature(it)
-                    },
-                    valueRange = 4000f..9000f,
-                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                )
+        ConsoleCard(if (isEn) "Manual Adjustments" else "Ajustes Manuais", "Saturation & Temperature", theme) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Saturação: ${"%.1f".format(uiState.currentSaturation)}", color = theme.text)
+                Slider(value = uiState.currentSaturation, onValueChange = { viewModel.saveSaturation(it) }, valueRange = 0.0f..2.0f)
+                Text("Temperatura: ${uiState.currentTemperature.toInt()}K", color = theme.text)
+                Slider(value = uiState.currentTemperature, onValueChange = { viewModel.saveTemperature(it) }, valueRange = 4000f..9000f)
             }
         }
     }
@@ -908,44 +332,47 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
 
 @Composable
 fun SystemPanel(
-    theme: ConsoleTheme, currentThemeIndex: Int, currentLanguage: String, amoledBlack: Boolean, isEn: Boolean,
-    bgmEnabled: Boolean, bgmVolume: Float, sfxEnabled: Boolean, sfxVolume: Float,
+    uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, amoledBlack: Boolean,
     liveWallpaperType: String, blurEnabled: Boolean, blurIntensity: Float, wallpaperOpacity: Float, selectedWallpaperName: String,
-    playClick: () -> Unit, onThemeChange: (Int) -> Unit, onLanguageChange: (String) -> Unit, onAmoledToggle: (Boolean) -> Unit,
-    onBgmToggle: (Boolean) -> Unit, onBgmVolume: (Float) -> Unit, onSfxToggle: (Boolean) -> Unit, onSfxVolume: (Float) -> Unit,
-    onReplayBoot: () -> Unit, onLiveWallpaperTypeChange: (String) -> Unit, onBlurToggle: (Boolean) -> Unit,
-    onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit,
-    onPresetStaticSelected: (Int, String) -> Unit, onPresetVideoSelected: () -> Unit, onCustomUriSelected: (Uri, String) -> Unit
+    currentThemeIndex: Int, currentLanguage: String, onThemeChange: (Int) -> Unit, onLanguageChange: (String) -> Unit,
+    onAmoledToggle: (Boolean) -> Unit, onLiveWallpaperTypeChange: (String) -> Unit, onBlurToggle: (Boolean) -> Unit,
+    onBlurIntensityChange: (Float) -> Unit, onWallpaperOpacityChange: (Float) -> Unit, onPresetStaticSelected: (Int, String) -> Unit,
+    onPresetVideoSelected: () -> Unit, onCustomUriSelected: (Uri, String) -> Unit, onReplayBoot: () -> Unit, playClick: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
+    val losslessManager = remember { LosslessManager(context) }
     var expandedLang by rememberSaveable { mutableStateOf(false) }
     var expandedTheme by rememberSaveable { mutableStateOf(false) }
     var expandedWallType by rememberSaveable { mutableStateOf(false) }
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { onCustomUriSelected(it, if (isEn) "Custom Image" else "Imagem Personalizada") }
-    }
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { onCustomUriSelected(it, "Custom Image") } }
+    val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { onCustomUriSelected(it, "Custom Video") } }
 
-    val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { onCustomUriSelected(it, if (isEn) "Custom Video (.MP4)" else "Vídeo Personalizado (.MP4)") }
-    }
-
-    // Seletor com feedback visual (Toast) para a Lossless.dll
-    val losslessManager = remember { LosslessManager(context) }
-    val losslessPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val losslessPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             val success = losslessManager.importDll(it)
-            if (success) {
-                Toast.makeText(context, if (isEn) "Lossless.dll imported successfully!" else "Lossless.dll importada com sucesso!", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, if (isEn) "Failed to import DLL." else "Falha ao importar DLL.", Toast.LENGTH_SHORT).show()
-            }
+            viewModel.refreshDllStatus()
+            Toast.makeText(context, if (success) "Lossless.dll importada com sucesso!" else "Falha na importação", Toast.LENGTH_SHORT).show()
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        ConsoleSectionHeader(if (isEn) "Overlay & Integration" else "Overlay e Integração", theme)
+        ConsoleCard("Side Menu / Gaming Overlay", "Barra lateral em tempo real sobre os jogos", theme) {
+            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Ativar Sidebar", color = theme.text)
+                ConsoleToggle(checked = uiState.overlayEnabled, theme = theme, onCheckedChange = { viewModel.toggleOverlay(it); playClick() })
+            }
+        }
+
+        ConsoleSectionHeader(if (isEn) "Lossless Scaling Engine" else "Motor Lossless Scaling", theme)
+        ConsoleCard("Lossless.dll Integration", if (uiState.isDllImported) "✅ Ficheiro Integrado no Sistema" else "❌ Ficheiro Ausente", theme) {
+            Button(onClick = { losslessPickerLauncher.launch("*/*"); playClick() }, modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+                Text(if (uiState.isDllImported) "Substituir Lossless.dll..." else "Importar Lossless.dll da Steam...")
+            }
+        }
+
         ConsoleSectionHeader(if (isEn) "Language & Region" else "Idioma e Região", theme)
         ConsoleCard(if (isEn) "System Language" else "Idioma do Sistema", currentLanguage, theme, playClick = { expandedLang = true; playClick() }) {
             DropdownMenu(expanded = expandedLang, onDismissRequest = { expandedLang = false }, modifier = Modifier.background(theme.surface)) {
@@ -954,6 +381,7 @@ fun SystemPanel(
                 }
             }
         }
+
         ConsoleSectionHeader(if (isEn) "UI Customization" else "Personalização UI", theme)
         ConsoleCard(if (isEn) "Console Theme" else "Tema do Console", AvailableThemes[currentThemeIndex].name, theme, playClick = { expandedTheme = true; playClick() }) {
             DropdownMenu(expanded = expandedTheme, onDismissRequest = { expandedTheme = false }, modifier = Modifier.background(theme.surface)) {
@@ -969,41 +397,6 @@ fun SystemPanel(
             }
         }
 
-        ConsoleSectionHeader(if (isEn) "Lossless Scaling Engine" else "Motor Lossless Scaling", theme)
-        ConsoleCard(if (isEn) "Lossless.dll Integration" else "Integração do Lossless.dll", if (isEn) "Required for Frame Generation" else "Necessário para Geração de Quadros", theme, playClick = playClick) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Button(
-                    onClick = {
-                        losslessPickerLauncher.launch("*/*")
-                        playClick()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (isEn) "Import Lossless.dll from Steam..." else "Importar Lossless.dll da Steam...", fontFamily = theme.fontFamily, color = Color.White)
-                }
-            }
-        }
-
-        ConsoleSectionHeader(if (isEn) "Audio Mixer" else "Mixer de Audio", theme)
-        ConsoleCard(if (isEn) "Background Music (BGM)" else "Música de Fundo (BGM)", "Volume: ${(bgmVolume * 100).toInt()}%", theme, playClick = null) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isEn) "Enable BGM" else "Habilitar BGM", color = theme.text, fontFamily = theme.fontFamily)
-                    ConsoleToggle(checked = bgmEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onBgmToggle(it); playClick() })
-                }
-                Slider(value = bgmVolume, onValueChange = { onBgmVolume(it) }, enabled = bgmEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-            }
-        }
-        ConsoleCard(if (isEn) "Sound Effects (SFX)" else "Efeitos Sonoros (SFX)", "Volume: ${(sfxVolume * 100).toInt()}%", theme, playClick = null) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isEn) "Enable SFX" else "Habilitar SFX", color = theme.text, fontFamily = theme.fontFamily)
-                    ConsoleToggle(checked = sfxEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onSfxToggle(it); playClick() })
-                }
-                Slider(value = sfxVolume, onValueChange = { onSfxVolume(it) }, enabled = sfxEnabled, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-            }
-        }
         ConsoleSectionHeader(if (isEn) "Live Wallpaper & Background" else "Live Wallpaper & Fundo", theme)
         ConsoleCard(if (isEn) "Wallpaper Type" else "Tipo de Wallpaper", liveWallpaperType, theme, playClick = { expandedWallType = true; playClick() }) {
             DropdownMenu(expanded = expandedWallType, onDismissRequest = { expandedWallType = false }, modifier = Modifier.background(theme.surface)) {
@@ -1028,44 +421,20 @@ fun SystemPanel(
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (liveWallpaperType == "Static") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onPresetStaticSelected(R.drawable.static_wallpaper_1, if (isEn) "Preset 1" else "Predefinição 1")
-                            playClick()
-                        }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                            Text(if (isEn) "Wallpaper 1" else "Wallpaper 1", fontFamily = theme.fontFamily, color = Color.White)
-                        }
-                        Button(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onPresetStaticSelected(R.drawable.static_wallpaper_2, if (isEn) "Preset 2" else "Predefinição 2")
-                            playClick()
-                        }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                            Text(if (isEn) "Wallpaper 2" else "Wallpaper 2", fontFamily = theme.fontFamily, color = Color.White)
-                        }
+                        Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetStaticSelected(R.drawable.static_wallpaper_1, "Preset 1"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Wallpaper 1", color = Color.White) }
+                        Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetStaticSelected(R.drawable.static_wallpaper_2, "Preset 2"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Wallpaper 2", color = Color.White) }
                     }
                 } else {
-                    Button(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onPresetVideoSelected()
-                        playClick()
-                    }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                        Text(if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão", fontFamily = theme.fontFamily, color = Color.White)
-                    }
+                    Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetVideoSelected(); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Live Wallpaper Padrão", color = Color.White) }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Button(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    if (liveWallpaperType == "Static") imagePickerLauncher.launch("image/*") else videoPickerLauncher.launch("video/*")
-                    playClick()
-                }, colors = ButtonDefaults.buttonColors(containerColor = theme.surface)) {
-                    Text(if (isEn) "Choose from Device..." else "Escolher do Dispositivo...", fontFamily = theme.fontFamily, color = theme.text)
-                }
+                Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); if (liveWallpaperType == "Static") imagePickerLauncher.launch("image/*") else videoPickerLauncher.launch("video/*"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.surface)) { Text("Escolher do Dispositivo...", color = theme.text) }
             }
         }
-        ConsoleSectionHeader(if (isEn) "About System" else "Sobre o Sistema", theme)
+        ConsoleSectionHeader("Sobre o Sistema", theme)
         ConsoleCard("Odin Hub", "Versão 0.5", theme, playClick = playClick) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text(if (isEn) "Replay Welcome Screen" else "Rever Tela de Boas-Vindas", color = theme.primary, fontFamily = theme.fontFamily, modifier = Modifier.clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onReplayBoot() })
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Rever Tela de Boas-Vindas", color = theme.primary, modifier = Modifier.clickable { onReplayBoot() })
             }
         }
     }
@@ -1082,9 +451,7 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, enabled: B
     val isFocused by interactionSource.collectIsFocusedAsState()
     val haptic = LocalHapticFeedback.current
 
-    LaunchedEffect(isFocused) {
-        if (isFocused && enabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-    }
+    LaunchedEffect(isFocused) { if (isFocused && enabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
 
     val scale by animateFloatAsState(targetValue = if (isFocused && enabled) 1.02f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
     val glow by animateDpAsState(targetValue = if (isFocused && enabled) 16.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
@@ -1097,33 +464,14 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, enabled: B
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = glassSurface),
-        modifier = Modifier
-            .fillMaxWidth()
-            .scale(scale)
-            .shadow(glow, RoundedCornerShape(8.dp), spotColor = theme.primary, ambientColor = theme.primary)
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-            .alpha(contentAlpha)
-            .then(
-                if (playClick != null && enabled) {
-                    Modifier
-                        .focusable(interactionSource = interactionSource)
-                        .clickable(interactionSource = interactionSource, indication = null) { playClick() }
-                } else {
-                    Modifier
-                }
-            )
+        modifier = Modifier.fillMaxWidth().scale(scale).shadow(glow, RoundedCornerShape(8.dp), spotColor = theme.primary, ambientColor = theme.primary).border(1.dp, borderColor, RoundedCornerShape(8.dp)).alpha(contentAlpha)
+            .then(if (playClick != null && enabled) Modifier.focusable(interactionSource = interactionSource).clickable(interactionSource = interactionSource, indication = null) { playClick() } else Modifier)
     ) {
         Column(modifier = Modifier.padding(vertical = 12.dp)) {
             Text(title, fontSize = 16.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = if (isFocused && enabled) theme.primary else theme.text, modifier = Modifier.padding(horizontal = 16.dp))
-            if (subtitle.isNotEmpty()) {
-                Text(subtitle, fontSize = 12.sp, fontFamily = theme.fontFamily, color = theme.text.copy(alpha = 0.6f), modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp))
-            } else {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
+            if (subtitle.isNotEmpty()) { Text(subtitle, fontSize = 12.sp, fontFamily = theme.fontFamily, color = theme.text.copy(alpha = 0.6f), modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) } else { Spacer(modifier = Modifier.height(8.dp)) }
             HorizontalDivider(color = theme.text.copy(alpha = 0.1f), thickness = 1.dp)
-            Column(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.2f))) {
-                content()
-            }
+            Column(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.2f))) { content() }
         }
     }
 }
@@ -1135,13 +483,7 @@ fun ConsoleToggle(checked: Boolean, theme: ConsoleTheme, onCheckedChange: (Boole
     val thumbColor by animateColorAsState(targetValue = if (checked) theme.primary else theme.text.copy(alpha = 0.5f), label = "toggleThumb")
 
     Box(
-        modifier = Modifier
-            .width(44.dp)
-            .height(24.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(bgColor)
-            .border(1.dp, thumbColor.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
-            .clickable { onCheckedChange(!checked) },
+        modifier = Modifier.width(44.dp).height(24.dp).clip(RoundedCornerShape(6.dp)).background(bgColor).border(1.dp, thumbColor.copy(alpha = 0.3f), RoundedCornerShape(6.dp)).clickable { onCheckedChange(!checked) },
         contentAlignment = Alignment.CenterStart
     ) {
         Box(modifier = Modifier.padding(start = thumbOffset).size(16.dp).clip(RoundedCornerShape(4.dp)).background(thumbColor))

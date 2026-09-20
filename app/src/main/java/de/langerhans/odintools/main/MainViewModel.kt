@@ -19,6 +19,7 @@ import de.langerhans.odintools.tools.DeviceUtils
 import de.langerhans.odintools.tools.SettingsRepo
 import de.langerhans.odintools.tools.ShellExecutor
 import de.langerhans.odintools.tools.hardware.DisplayManager
+import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,25 +37,23 @@ class MainViewModel @Inject constructor(
     private val settings: SettingsRepo,
     private val prefs: SharedPrefsRepo,
     private val performanceManager: PerformanceManager,
-    private val displayManager: DisplayManager
+    private val displayManager: DisplayManager,
+    private val losslessManager: LosslessManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiModel())
     val uiState: StateFlow<MainUiModel> = _uiState.asStateFlow()
 
     private var _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList()
-    val controllerStyleOptions: List<CheckboxPreferenceUiModel>
-        get() = _controllerStyleOptions
-
+    val controllerStyleOptions: List<CheckboxPreferenceUiModel> get() = _controllerStyleOptions
     private var _l2r2StyleOptions = getCurrentL2r2Styles().toMutableStateList()
-    val l2r2StyleOptions: List<CheckboxPreferenceUiModel>
-        get() = _l2r2StyleOptions
+    val l2r2StyleOptions: List<CheckboxPreferenceUiModel> get() = _l2r2StyleOptions
 
     init {
         settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
-        _uiState.update { _ ->
+        _uiState.update {
             MainUiModel(
                 deviceType = deviceType,
                 deviceVersion = deviceUtils.getDeviceVersion(),
@@ -65,127 +64,110 @@ class MainViewModel @Inject constructor(
                 vibrationEnabled = settings.vibrationEnabled,
                 chargeLimitEnabled = prefs.chargeLimitEnabled,
                 videoOutputOverrideEnabled = prefs.videoOutputOverrideEnabled,
+
+                currentSaturation = prefs.saturationOverride,
+                currentTemperature = prefs.temperatureOverride,
+                globalLsfgEnabled = prefs.globalLsfgEnabled,
+                globalSgsrEnabled = prefs.globalSgsrEnabled,
+                isDllImported = losslessManager.isDllImported
             )
         }
     }
 
-    // ==========================================
-    // CONTROLES DE PERFORMANCE & PERFIS
-    // ==========================================
+    // Odin Hub - Overlay
+    fun toggleOverlay(enabled: Boolean) {
+        _uiState.update { it.copy(overlayEnabled = enabled) }
+    }
+
+    // Odin Hub - Performance
+    fun updateLimitMode(mode: String) {
+        _uiState.update { it.copy(activeLimitMode = mode) }
+    }
+
     fun updatePerformanceProfile(profile: String) {
         _uiState.update { it.copy(performanceProfile = profile) }
         when (profile) {
-            "Power Save" -> {
-                _uiState.update { it.copy(tdpValue = 5f, cpuPerfClock = 1735f, cpuPrimeClock = 2246f, gpuClock = 160f) }
-                performanceManager.applyAbsoluteClocks(1735000L, 2246000L, 160000000L)
-            }
-            "Balanced" -> {
-                _uiState.update { it.copy(tdpValue = 10f) }
-                performanceManager.applyDynamicTdp(10f)
-            }
-            "Triple A" -> {
-                _uiState.update { it.copy(tdpValue = 15f) }
-                performanceManager.applyDynamicTdp(15f)
-            }
-            "Full" -> {
-                _uiState.update { it.copy(tdpValue = 25f, cpuPerfClock = 3530f, cpuPrimeClock = 4320f, gpuClock = 1100f) }
-                performanceManager.applyAbsoluteClocks(3530000L, 4320000L, 1100000000L)
-            }
-            "Smart" -> {
-                val currentTdp = _uiState.value.tdpValue
-                performanceManager.applyDynamicTdp(currentTdp)
-            }
-            else -> {}
+            "Power Save" -> { updateTdp(5f); updateManualClocks(1735f, 2246f, 160f) }
+            "Balanced" -> updateTdp(10f)
+            "Triple A" -> updateTdp(15f)
+            "Full" -> { updateTdp(25f); updateManualClocks(3530f, 4320f, 1100f) }
+            "Smart" -> performanceManager.applyDynamicTdp(_uiState.value.tdpValue)
         }
     }
 
-    fun updateTdp(watts: Float, isManualAction: Boolean = true) {
-        _uiState.update {
-            it.copy(
-                tdpValue = watts,
-                performanceProfile = if (isManualAction && it.performanceProfile != "Smart") "Personalizado" else it.performanceProfile
-            )
-        }
-        if (_uiState.value.performanceProfile == "Smart" || isManualAction) {
-            performanceManager.applyDynamicTdp(watts)
-        }
+    fun updateTdp(watts: Float) {
+        _uiState.update { it.copy(tdpValue = watts) }
+        performanceManager.applyDynamicTdp(watts)
     }
 
-    fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float, isManualAction: Boolean = true) {
-        _uiState.update {
-            it.copy(
-                cpuPerfClock = perfClock,
-                cpuPrimeClock = primeClock,
-                gpuClock = gpuClock,
-                performanceProfile = if (isManualAction) "Personalizado" else it.performanceProfile
-            )
-        }
-        performanceManager.applyAbsoluteClocks(
-            perfClockKHz = (perfClock * 1000).toLong(),
-            primeClockKHz = (primeClock * 1000).toLong(),
-            gpuClockHz = (gpuClock * 1000000).toLong()
-        )
-    }
-
-    fun updateUseRoot(useRoot: Boolean) {
-        _uiState.update { it.copy(useRootTarget = useRoot) }
-        performanceManager.isKsuModuleActive = useRoot
-        if (useRoot && _uiState.value.performanceProfile != "Smart") {
-            performanceManager.applyAbsoluteClocks(
-                (_uiState.value.cpuPerfClock * 1000).toLong(),
-                (_uiState.value.cpuPrimeClock * 1000).toLong(),
-                (_uiState.value.gpuClock * 1000000).toLong()
-            )
-        }
-    }
-
-    fun showSaveProfileDialog() {
-        _uiState.update { it.copy(showSaveProfileDialog = true) }
-    }
-
-    fun dismissSaveProfileDialog() {
-        _uiState.update { it.copy(showSaveProfileDialog = false) }
-    }
-
-    fun saveCustomProfile(profileName: String) {
-        if (profileName.isNotBlank() && !uiState.value.savedCustomProfiles.contains(profileName)) {
-            val updatedList = uiState.value.savedCustomProfiles + profileName
-            _uiState.update {
-                it.copy(
-                    savedCustomProfiles = updatedList,
-                    performanceProfile = profileName,
-                    showSaveProfileDialog = false
-                )
-            }
-        } else {
-            _uiState.update { it.copy(showSaveProfileDialog = false) }
-        }
+    fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
+        _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
+        performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
     }
 
     fun setFanMode(profileName: String) {
-        val fanMode = de.langerhans.odintools.models.FanMode.fromString(profileName)
-        fanMode.enable(executor)
+        de.langerhans.odintools.models.FanMode.fromString(profileName).enable(executor)
     }
 
-    // ==========================================
-    // MÉTODOS ORIGINAIS DO ODINTOOLS
-    // ==========================================
+    // Odin Hub - Display
+    fun updateGlobalLsfg(enabled: Boolean) {
+        prefs.globalLsfgEnabled = enabled
+        _uiState.update { it.copy(globalLsfgEnabled = enabled) }
+    }
+
+    fun updateGlobalSgsr(enabled: Boolean) {
+        prefs.globalSgsrEnabled = enabled
+        _uiState.update { it.copy(globalSgsrEnabled = enabled) }
+    }
+
+    fun refreshDllStatus() {
+        _uiState.update { it.copy(isDllImported = losslessManager.isDllImported) }
+    }
+
+    fun applyReshadeProfile(profile: String) {
+        var sat = 1.0f
+        var temp = 6500f
+        when (profile) {
+            "Native", "Nativo" -> { sat = 1.0f; temp = 6500f }
+            "Vibrant", "Vibrante" -> { sat = 1.3f; temp = 6800f }
+            "Cinema" -> { sat = 0.9f; temp = 5800f }
+            "Retro", "Retrô" -> { sat = 0.7f; temp = 7500f }
+            "HDR Boost" -> { sat = 1.5f; temp = 6500f }
+        }
+        _uiState.update { it.copy(reshadeProfile = profile) }
+        saveSaturation(sat)
+        saveTemperature(temp)
+    }
+
+    fun saveSaturation(newValue: Float) {
+        prefs.saturationOverride = newValue
+        displayManager.applySaturation(newValue)
+        _uiState.update { it.copy(currentSaturation = newValue) }
+    }
+
+    fun saveTemperature(newValue: Float) {
+        prefs.temperatureOverride = newValue
+        displayManager.applyTemperature(newValue)
+        _uiState.update { it.copy(currentTemperature = newValue) }
+    }
+
+    // OdinTools Nativas
     fun incompatibleDeviceDialogDismissed() {
-        _uiState.update { current -> current.copy(showIncompatibleDeviceDialog = false) }
+        _uiState.update { it.copy(showIncompatibleDeviceDialog = false) }
     }
 
     fun updateSinglePressHomePreference(newValue: Boolean) {
         settings.preventPressHome = !newValue
-        _uiState.update { current -> current.copy(singlePressHomeEnabled = newValue) }
+        _uiState.update { it.copy(singlePressHomeEnabled = newValue) }
     }
 
     fun showControllerStylePreference() {
         _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList()
-        _uiState.update { current -> current.copy(showControllerStyleDialog = true) }
+        _uiState.update { it.copy(showControllerStyleDialog = true) }
     }
 
     fun hideControllerStylePreference() {
-        _uiState.update { current -> current.copy(showControllerStyleDialog = false) }
+        _uiState.update { it.copy(showControllerStyleDialog = false) }
     }
 
     private fun getCurrentControllerStyles(): List<CheckboxPreferenceUiModel> {
@@ -229,19 +211,6 @@ class MainViewModel @Inject constructor(
 
     fun saturationDialogDismissed() {
         _uiState.update { it.copy(showSaturationDialog = false) }
-    }
-
-    // Atualizado para chamar o DisplayManager
-    fun saveSaturation(newValue: Float) {
-        prefs.saturationOverride = newValue
-        settings.setSfSaturation(newValue)
-        displayManager.applySaturation(newValue)
-        _uiState.update { it.copy(showSaturationDialog = false) }
-    }
-
-    // Nova função de temperatura
-    fun saveTemperature(newValue: Float) {
-        displayManager.applyTemperature(newValue)
     }
 
     fun updateVibrationPreference(newValue: Boolean) {

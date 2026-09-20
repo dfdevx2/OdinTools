@@ -7,8 +7,10 @@ import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
 import android.view.WindowManager
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -23,7 +25,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class GamingOverlayService : Service() {
@@ -41,56 +42,41 @@ class GamingOverlayService : Service() {
 
     private fun createOverlayView() {
         overlayView = ComposeView(this).apply {
-            // Garante o ciclo de vida correto para o Compose dentro de um Serviço
             setViewTreeLifecycleOwner(ServiceLifecycleOwner())
             setViewTreeSavedStateRegistryOwner(ServiceLifecycleOwner())
 
             setContent {
+                var isExpanded by remember { mutableStateOf(false) }
+                val width by animateDpAsState(if (isExpanded) 360.dp else 24.dp)
+                val bgColor = if (isExpanded) Color(0xEE0F1115) else Color(0x88000000)
+
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(360.dp)
-                        .background(Color(0xEE0F1115))
-                        .border(1.dp, Color(0xFF1976D2).copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
-                        .padding(16.dp)
+                        .width(width)
+                        .background(bgColor, RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                        .border(1.dp, Color(0xFF1976D2).copy(alpha = if (isExpanded) 0.5f else 0.1f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                        .clickable { isExpanded = !isExpanded }
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = "ODIN HUB // QUICK OVERLAY",
-                            color = Color(0xFF1976D2),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = "Painel de Controlo em Tempo Real",
-                            color = Color.Gray,
-                            fontSize = 12.sp
-                        )
-                        // Aqui o utilizador pode alternar perfis rapidamente enquanto joga
+                    if (isExpanded) {
+                        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+                            Text("ODIN HUB OVERLAY", color = Color(0xFF1976D2), fontWeight = FontWeight.Black)
+                            Spacer(Modifier.height(16.dp))
+                            // O painel completo entra aqui (TDP, Fans, ReShade, etc.)
+                        }
+                    } else {
+                        Box(modifier = Modifier.width(4.dp).height(40.dp).background(Color.Gray, RoundedCornerShape(50)).align(Alignment.CenterStart).offset(x = 8.dp))
                     }
                 }
             }
         }
 
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            layoutFlag,
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.END or Gravity.TOP
-        }
+        ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
 
         windowManager.addView(overlayView, params)
     }
@@ -99,18 +85,4 @@ class GamingOverlayService : Service() {
         super.onDestroy()
         overlayView?.let { windowManager.removeView(it) }
     }
-}
-
-// Classe auxiliar mínima para suportar o ciclo de vida do Compose no Serviço
-private class ServiceLifecycleOwner : androidx.lifecycle.LifecycleOwner, androidx.savedstate.SavedStateRegistryOwner {
-    private val lifecycleRegistry = androidx.lifecycle.LifecycleRegistry(this)
-    private val savedStateRegistryController = androidx.savedstate.SavedStateRegistryController.create(this)
-
-    init {
-        lifecycleRegistry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_CREATE)
-        savedStateRegistryController.performRestore(null)
-    }
-
-    override val lifecycle: androidx.lifecycle.Lifecycle get() = lifecycleRegistry
-    override val savedStateRegistry: androidx.savedstate.SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 }
