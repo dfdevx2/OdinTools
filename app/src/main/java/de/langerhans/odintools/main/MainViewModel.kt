@@ -56,7 +56,7 @@ class MainViewModel @Inject constructor(
         settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
-        // Clear global unsafe layer properties on startup to prevent system app crashes
+        // Safety: clear global layer properties on startup
         executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
         executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
 
@@ -85,14 +85,22 @@ class MainViewModel @Inject constructor(
                 sgsrMode = prefs.sgsrMode,
                 reshadeProfile = prefs.reshadeProfile,
                 showFpsOverlay = prefs.showFpsOverlay,
-                isDllImported = losslessManager.isDllImported
+                isDllImported = losslessManager.isDllImported,
+
+                // Restores saved state from persistent storage
+                overlayEnabled = prefs.overlayEnabled
             )
         }
 
-        // Push initial state to native Vulkan C++ layer
+        // Push initial states to native Vulkan bridge
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
         VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
         VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+
+        // Automatically starts the overlay service if previously enabled by user
+        if (prefs.overlayEnabled) {
+            context.startService(Intent(context, GamingOverlayService::class.java))
+        }
     }
 
     fun updateThemeIndex(newIndex: Int) {
@@ -113,6 +121,7 @@ class MainViewModel @Inject constructor(
 
     // Odin Hub - Overlay Sidebar
     fun toggleOverlay(enabled: Boolean) {
+        prefs.overlayEnabled = enabled
         _uiState.update { it.copy(overlayEnabled = enabled) }
         val intent = Intent(context, GamingOverlayService::class.java)
         if (enabled) {

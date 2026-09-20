@@ -1,4 +1,4 @@
-package de.langerhans.odintools.service
+package de.langerhans.odintools.overlay
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -41,18 +41,18 @@ import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import de.langerhans.odintools.ui.theme.ConsoleTheme
 
 @Composable
-fun GameOverlayRenderer(
+fun QuickAccessContent(
     isExpanded: Boolean,
     theme: ConsoleTheme,
     prefs: SharedPrefsRepo,
     isDllReady: Boolean,
-    onExpandToggle: () -> Unit,
+    onExpand: () -> Unit,
     onClose: () -> Unit
 ) {
     val currentWidth by animateDpAsState(
-        targetValue = if (isExpanded) 360.dp else 28.dp,
+        targetValue = if (isExpanded) 340.dp else 28.dp,
         animationSpec = tween(250),
-        label = "overlayWidthAnim"
+        label = "widthAnim"
     )
 
     Box(
@@ -67,7 +67,7 @@ fun GameOverlayRenderer(
                     .background(theme.background.copy(alpha = 0.95f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
                     .border(1.dp, theme.primary.copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
             ) {
-                OverlaySidebarPanel(
+                QuickAccessPanel(
                     theme = theme,
                     prefs = prefs,
                     isDllReady = isDllReady,
@@ -75,14 +75,14 @@ fun GameOverlayRenderer(
                 )
             }
         } else {
-            // Pulse-inspired floating handle pill
+            // Pulse floating handle pill
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
                     .background(theme.primary.copy(alpha = 0.85f))
                     .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
-                    .clickable { onExpandToggle() },
+                    .clickable { onExpand() },
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -97,7 +97,7 @@ fun GameOverlayRenderer(
 }
 
 @Composable
-fun OverlaySidebarPanel(
+private fun QuickAccessPanel(
     theme: ConsoleTheme,
     prefs: SharedPrefsRepo,
     isDllReady: Boolean,
@@ -149,7 +149,7 @@ fun OverlaySidebarPanel(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Section 1: Vulkan Shaders
+        // Vulkan Shaders
         Text(
             text = "VULKAN SHADERS (In-Game)",
             color = theme.text.copy(alpha = 0.5f),
@@ -160,7 +160,6 @@ fun OverlaySidebarPanel(
 
         val profiles = listOf("Native", "Vibrant", "Anime Edge", "Game Clarity", "Color Boost", "Retro CRT")
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // Traditional loops avoid non-composable context invocation issues
             for (rowProfiles in profiles.chunked(2)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -196,7 +195,7 @@ fun OverlaySidebarPanel(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Section 2: Snapdragon Super Resolution
+        // Snapdragon Super Resolution
         Text(
             text = "ENGINE UPSCALING",
             color = theme.text.copy(alpha = 0.5f),
@@ -235,7 +234,7 @@ fun OverlaySidebarPanel(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Section 3: Lossless Scaling Frame Generation
+        // Lossless Scaling Frame Generation
         Text(
             text = "FRAME GENERATION (LSFG)",
             color = theme.text.copy(alpha = 0.5f),
