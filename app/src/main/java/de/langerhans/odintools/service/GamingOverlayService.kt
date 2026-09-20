@@ -47,6 +47,9 @@ class GamingOverlayService : Service() {
     private var overlayView: ComposeView? = null
     private var isExpandedState by mutableStateOf(false)
 
+    private val density: Float
+        get() = resources.displayMetrics.density
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -55,15 +58,22 @@ class GamingOverlayService : Service() {
         createOverlayView()
     }
 
-    private fun updateWindowFlags() {
+    private fun updateWindowLayout() {
         val params = overlayView?.layoutParams as? WindowManager.LayoutParams ?: return
         if (isExpandedState) {
-            params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-            params.width = WindowManager.LayoutParams.WRAP_CONTENT
+            // Full sidebar expanded view
+            params.width = (340 * density).toInt()
+            params.height = WindowManager.LayoutParams.MATCH_PARENT
+            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         } else {
-            // Larger invisible area to facilitate swiping gestures
-            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-            params.width = 100
+            // Minimal collapsed floating trigger: only 28dp width and 80dp height to not interfere with system gestures
+            params.width = (28 * density).toInt()
+            params.height = (80 * density).toInt()
+            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         }
         windowManager.updateViewLayout(overlayView, params)
     }
@@ -74,47 +84,70 @@ class GamingOverlayService : Service() {
             setViewTreeSavedStateRegistryOwner(ServiceLifecycleOwner())
 
             setContent {
-                val width by animateDpAsState(if (isExpandedState) 360.dp else 24.dp, animationSpec = tween(300), label = "widthAnim")
-                val bgColor = if (isExpandedState) Color(0xEE0F1115) else Color.Transparent
+                val currentWidth by animateDpAsState(
+                    targetValue = if (isExpandedState) 340.dp else 28.dp,
+                    animationSpec = tween(250),
+                    label = "widthAnim"
+                )
 
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(width)
-                        .background(bgColor, RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
-                        .then(
-                            if (isExpandedState) Modifier.border(1.dp, Color(0xFF1976D2).copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
-                            else Modifier
-                        )
+                        .width(currentWidth)
                 ) {
                     if (isExpandedState) {
-                        SidebarContent(
-                            onClose = { isExpandedState = false; updateWindowFlags() }
-                        )
-                    } else {
-                        // Sidebar handle (Larger hitbox for fingers to pull)
                         Box(
                             modifier = Modifier
-                                .fillMaxHeight()
-                                .width(60.dp)
-                                .clickable { isExpandedState = true; updateWindowFlags() },
-                            contentAlignment = Alignment.CenterEnd
+                                .fillMaxSize()
+                                .background(Color(0xF00D1117), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                                .border(1.dp, Color(0xFF1976D2).copy(alpha = 0.6f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
                         ) {
-                            Box(modifier = Modifier.width(6.dp).height(80.dp).background(Color.White.copy(alpha = 0.3f), RoundedCornerShape(50)).offset(x = (-8).dp))
+                            SidebarContent(
+                                onClose = {
+                                    isExpandedState = false
+                                    updateWindowLayout()
+                                }
+                            )
+                        }
+                    } else {
+                        // Collapsed Floating Handle Pill
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                                .background(Color(0xCC1976D2))
+                                .clickable {
+                                    isExpandedState = true
+                                    updateWindowLayout()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .height(32.dp)
+                                    .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(50))
+                            )
                         }
                     }
                 }
             }
         }
 
-        val params = WindowManager.LayoutParams(
-            100, WindowManager.LayoutParams.MATCH_PARENT,
+        // Initial LayoutParams: strictly limited to a tiny pill on the middle-right edge
+        val initialParams = WindowManager.LayoutParams(
+            (28 * density).toInt(),
+            (80 * density).toInt(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+        ).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
 
-        windowManager.addView(overlayView, params)
+        windowManager.addView(overlayView, initialParams)
     }
 
     @Composable
@@ -123,42 +156,91 @@ class GamingOverlayService : Service() {
         var sgsrEnabled by remember { mutableStateOf(prefs.globalSgsrEnabled) }
         var sgsrMode by remember { mutableStateOf(prefs.sgsrMode) }
 
-        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("ODIN HUB", color = Color(0xFF1976D2), fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Text("X", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onClose() }.padding(8.dp))
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxSize()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("ODIN HUB", color = Color(0xFF1976D2), fontWeight = FontWeight.Black, fontSize = 18.sp)
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.1f))
+                        .clickable { onClose() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✕", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
             }
-            Spacer(Modifier.height(24.dp))
 
-            Text("VULKAN SHADERS (In-Game)", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(20.dp))
+
+            Text("VULKAN SHADERS", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
 
-            // ReShade Selector
-            Text("ReShade Profile", color = Color.White)
             val profiles = listOf("Native", "Vibrant", "Anime Edge", "Game Clarity")
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                profiles.forEach { profile ->
-                    val isSelected = reshadeProfile == profile
-                    Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (isSelected) Color(0xFF1976D2) else Color(0xFF333333)).clickable {
-                        reshadeProfile = profile
-                        prefs.reshadeProfile = profile
-                        VulkanNativeBridge.applyReshade(profile, prefs.saturationOverride, prefs.temperatureOverride)
-                    }.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                        Text(profile, color = Color.White, fontSize = 11.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                profiles.chunked(2).forEach { rowProfiles ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        rowProfiles.forEach { profile ->
+                            val isSelected = reshadeProfile == profile
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Color(0xFF1976D2) else Color(0xFF1E222B))
+                                    .border(1.dp, if (isSelected) Color(0xFF1976D2) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        reshadeProfile = profile
+                                        prefs.reshadeProfile = profile
+                                        VulkanNativeBridge.applyReshade(profile, prefs.saturationOverride, prefs.temperatureOverride)
+                                    }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(profile, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
 
-            // SGSR Toggle
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("SGSR (Snapdragon Upscaling)", color = Color.White)
-                Switch(checked = sgsrEnabled, onCheckedChange = {
-                    sgsrEnabled = it
-                    prefs.globalSgsrEnabled = it
-                    VulkanNativeBridge.applySgsr(it, sgsrMode)
-                }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF1976D2), checkedTrackColor = Color(0xFF1976D2).copy(alpha=0.5f)))
+            Text("ENGINE UPSCALING", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1E222B))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Snapdragon SGSR", color = Color.White, fontSize = 13.sp)
+                Switch(
+                    checked = sgsrEnabled,
+                    onCheckedChange = {
+                        sgsrEnabled = it
+                        prefs.globalSgsrEnabled = it
+                        VulkanNativeBridge.applySgsr(it, sgsrMode)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFF1976D2),
+                        checkedTrackColor = Color(0xFF1976D2).copy(alpha = 0.4f)
+                    )
+                )
             }
         }
     }
@@ -169,7 +251,6 @@ class GamingOverlayService : Service() {
     }
 }
 
-// Lifecycle owner required for Compose to work correctly inside an Android Service
 private class ServiceLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)

@@ -59,6 +59,10 @@ class MainViewModel @Inject constructor(
         settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
+        // Critical safety reset: Clear global Vulkan layer property on launch to prevent system-wide crashes
+        executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
+        executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
+
         _uiState.update {
             MainUiModel(
                 deviceType = deviceType,
@@ -89,46 +93,23 @@ class MainViewModel @Inject constructor(
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
         VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
         VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
-
-        // Critical: Register Vulkan Layer Manifest via Root so Android actually loads our .so file
-        registerVulkanLayerManifest()
     }
 
-    private fun registerVulkanLayerManifest() {
-        val libPath = context.applicationInfo.nativeLibraryDir + "/libOdinVulkanLayer.so"
-        val jsonDir = "/data/local/debug/vulkan"
-
-        val jsonContent = """
-            {
-                "file_format_version": "1.0.0",
-                "layer": {
-                    "name": "VK_LAYER_ODIN_HUB",
-                    "type": "GLOBAL",
-                    "library_path": "$libPath",
-                    "api_version": "1.3.200",
-                    "implementation_version": "1",
-                    "description": "Odin Hub Vulkan Injection Layer"
-                }
-            }
-        """.trimIndent()
-
-        executor.executeAsRoot("mkdir -p $jsonDir")
-        executor.executeAsRoot("echo '$jsonContent' > $jsonDir/VkLayer_odin_hub.json")
-        executor.executeAsRoot("chmod 777 $jsonDir/VkLayer_odin_hub.json")
-        // Enforce system to read custom layers from this directory
-        executor.executeAsRoot("setprop debug.vulkan.layer.dir $jsonDir")
-        // Force the layer to be enabled globally for all Vulkan apps
-        executor.executeAsRoot("setprop debug.vulkan.layers VK_LAYER_ODIN_HUB")
+    fun finishWelcomeSetup() {
+        prefs.isFirstRun = false
     }
 
-    fun finishWelcomeSetup() { prefs.isFirstRun = false }
     fun isFirstRun(): Boolean = prefs.isFirstRun
 
     // Odin Hub - Overlay Sidebar
     fun toggleOverlay(enabled: Boolean) {
         _uiState.update { it.copy(overlayEnabled = enabled) }
         val intent = Intent(context, GamingOverlayService::class.java)
-        if (enabled) { context.startService(intent) } else { context.stopService(intent) }
+        if (enabled) {
+            context.startService(intent)
+        } else {
+            context.stopService(intent)
+        }
     }
 
     fun toggleFpsOverlay(enabled: Boolean) {
@@ -137,7 +118,10 @@ class MainViewModel @Inject constructor(
     }
 
     // Odin Hub - Performance
-    fun updateLimitMode(mode: String) { _uiState.update { it.copy(activeLimitMode = mode) } }
+    fun updateLimitMode(mode: String) {
+        _uiState.update { it.copy(activeLimitMode = mode) }
+    }
+
     fun updatePerformanceProfile(profile: String) {
         _uiState.update { it.copy(performanceProfile = profile) }
         when (profile) {
@@ -147,7 +131,12 @@ class MainViewModel @Inject constructor(
             "Stock" -> { updateTdp(25f); updateManualClocks(3530f, 4320f, 1100f) }
         }
     }
-    fun updateTdp(watts: Float) { _uiState.update { it.copy(tdpValue = watts) }; performanceManager.applyDynamicTdp(watts) }
+
+    fun updateTdp(watts: Float) {
+        _uiState.update { it.copy(tdpValue = watts) }
+        performanceManager.applyDynamicTdp(watts)
+    }
+
     fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
         _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
         performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
@@ -161,12 +150,15 @@ class MainViewModel @Inject constructor(
     }
 
     fun updateLsfgOptions(multiplier: String, pacing: Boolean) {
-        prefs.lsfgMultiplier = multiplier; prefs.lsfgFramePacing = pacing
+        prefs.lsfgMultiplier = multiplier
+        prefs.lsfgFramePacing = pacing
         _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing) }
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing)
     }
 
-    fun refreshDllStatus() { _uiState.update { it.copy(isDllImported = losslessManager.isDllImported) } }
+    fun refreshDllStatus() {
+        _uiState.update { it.copy(isDllImported = losslessManager.isDllImported) }
+    }
 
     fun saveSaturation(newValue: Float) {
         prefs.saturationOverride = newValue
@@ -180,26 +172,85 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(currentTemperature = newValue) }
     }
 
-    // New: Reset colors to absolute native hardware values
     fun resetDisplayColors() {
         saveSaturation(1.0f)
         saveTemperature(6500f)
     }
 
     // Native OdinTools Functions
-    fun incompatibleDeviceDialogDismissed() { _uiState.update { it.copy(showIncompatibleDeviceDialog = false) } }
-    fun updateSinglePressHomePreference(newValue: Boolean) { settings.preventPressHome = !newValue; _uiState.update { it.copy(singlePressHomeEnabled = newValue) } }
-    fun showControllerStylePreference() { _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList(); _uiState.update { it.copy(showControllerStyleDialog = true) } }
-    fun hideControllerStylePreference() { _uiState.update { it.copy(showControllerStyleDialog = false) } }
-    private fun getCurrentControllerStyles(): List<CheckboxPreferenceUiModel> { val disabled = prefs.disabledControllerStyle; return listOf(CheckboxPreferenceUiModel(Xbox.id, R.string.xbox, disabled != Xbox.id), CheckboxPreferenceUiModel(Odin.id, R.string.odin, disabled != Odin.id), CheckboxPreferenceUiModel(Disconnect.id, R.string.disconnect, disabled != Disconnect.id)) }
-    fun updateControllerStyles(models: List<CheckboxPreferenceUiModel>) { prefs.disabledControllerStyle = models.find { it.checked.not() }?.key }
-    fun showL2r2StylePreference() { _l2r2StyleOptions = getCurrentL2r2Styles().toMutableStateList(); _uiState.update { it.copy(showL2r2StyleDialog = true) } }
-    fun hideL2r2StylePreference() { _uiState.update { it.copy(showL2r2StyleDialog = false) } }
-    private fun getCurrentL2r2Styles(): List<CheckboxPreferenceUiModel> { val disabled = prefs.disabledL2r2Style; return listOf(CheckboxPreferenceUiModel(Analog.id, R.string.analog, disabled != Analog.id), CheckboxPreferenceUiModel(Digital.id, R.string.digital, disabled != Digital.id), CheckboxPreferenceUiModel(Both.id, R.string.both, disabled != Both.id)) }
-    fun updateL2r2Styles(models: List<CheckboxPreferenceUiModel>) { prefs.disabledL2r2Style = models.find { it.checked.not() }?.key }
-    fun updateVibrationPreference(newValue: Boolean) { settings.vibrationEnabled = newValue; _uiState.update { it.copy(vibrationEnabled = newValue) } }
-    fun remapButtonClicked(setting: String) { _uiState.update { it.copy(showRemapButtonDialog = true, currentButtonSetting = setting, currentButtonKeyCode = executor.getIntSystemSetting(setting, 0)) } }
-    fun remapButtonDialogDismissed() { _uiState.update { it.copy(showRemapButtonDialog = false) } }
-    fun saveButtonKeyCode(setting: String, newValue: Int) { executor.setIntSystemSetting(setting, newValue); _uiState.update { it.copy(showRemapButtonDialog = false) } }
-    fun appOverridesEnabled(newValue: Boolean) { prefs.appOverridesEnabled = newValue; _uiState.update { it.copy(appOverridesEnabled = newValue) } }
+    fun incompatibleDeviceDialogDismissed() {
+        _uiState.update { it.copy(showIncompatibleDeviceDialog = false) }
+    }
+
+    fun updateSinglePressHomePreference(newValue: Boolean) {
+        settings.preventPressHome = !newValue
+        _uiState.update { it.copy(singlePressHomeEnabled = newValue) }
+    }
+
+    fun showControllerStylePreference() {
+        _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList()
+        _uiState.update { it.copy(showControllerStyleDialog = true) }
+    }
+
+    fun hideControllerStylePreference() {
+        _uiState.update { it.copy(showControllerStyleDialog = false) }
+    }
+
+    private fun getCurrentControllerStyles(): List<CheckboxPreferenceUiModel> {
+        val disabled = prefs.disabledControllerStyle
+        return listOf(
+            CheckboxPreferenceUiModel(Xbox.id, R.string.xbox, disabled != Xbox.id),
+            CheckboxPreferenceUiModel(Odin.id, R.string.odin, disabled != Odin.id),
+            CheckboxPreferenceUiModel(Disconnect.id, R.string.disconnect, disabled != Disconnect.id)
+        )
+    }
+
+    fun updateControllerStyles(models: List<CheckboxPreferenceUiModel>) {
+        prefs.disabledControllerStyle = models.find { it.checked.not() }?.key
+    }
+
+    fun showL2r2StylePreference() {
+        _l2r2StyleOptions = getCurrentL2r2Styles().toMutableStateList()
+        _uiState.update { it.copy(showL2r2StyleDialog = true) }
+    }
+
+    fun hideL2r2StylePreference() {
+        _uiState.update { it.copy(showL2r2StyleDialog = false) }
+    }
+
+    private fun getCurrentL2r2Styles(): List<CheckboxPreferenceUiModel> {
+        val disabled = prefs.disabledL2r2Style
+        return listOf(
+            CheckboxPreferenceUiModel(Analog.id, R.string.analog, disabled != Analog.id),
+            CheckboxPreferenceUiModel(Digital.id, R.string.digital, disabled != Digital.id),
+            CheckboxPreferenceUiModel(Both.id, R.string.both, disabled != Both.id)
+        )
+    }
+
+    fun updateL2r2Styles(models: List<CheckboxPreferenceUiModel>) {
+        prefs.disabledL2r2Style = models.find { it.checked.not() }?.key
+    }
+
+    fun updateVibrationPreference(newValue: Boolean) {
+        settings.vibrationEnabled = newValue
+        _uiState.update { it.copy(vibrationEnabled = newValue) }
+    }
+
+    fun remapButtonClicked(setting: String) {
+        _uiState.update { it.copy(showRemapButtonDialog = true, currentButtonSetting = setting, currentButtonKeyCode = executor.getIntSystemSetting(setting, 0)) }
+    }
+
+    fun remapButtonDialogDismissed() {
+        _uiState.update { it.copy(showRemapButtonDialog = false) }
+    }
+
+    fun saveButtonKeyCode(setting: String, newValue: Int) {
+        executor.setIntSystemSetting(setting, newValue)
+        _uiState.update { it.copy(showRemapButtonDialog = false) }
+    }
+
+    fun appOverridesEnabled(newValue: Boolean) {
+        prefs.appOverridesEnabled = newValue
+        _uiState.update { it.copy(appOverridesEnabled = newValue) }
+    }
 }
