@@ -28,7 +28,6 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getBoolean(KEY_OVERLAY_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_OVERLAY_ENABLED, value).apply()
 
-    // Handle Customization Preferences
     var overlayHandleOpacity: Float
         get() = prefs.getFloat(KEY_OVERLAY_HANDLE_OPACITY, 0.5f)
         set(value) = prefs.edit().putFloat(KEY_OVERLAY_HANDLE_OPACITY, value).apply()
@@ -132,6 +131,15 @@ class SharedPrefsRepo @Inject constructor(
     var showFpsOverlay: Boolean
         get() = prefs.getBoolean(KEY_FPS_OVERLAY, false)
         set(value) = prefs.edit().putBoolean(KEY_FPS_OVERLAY, value).apply()
+
+    fun saveCustomProfile(name: String, tdp: Float, perfClock: Float, primeClock: Float, gpuClock: Float) {
+        prefs.edit()
+            .putFloat("custom_profile_${name}_tdp", tdp)
+            .putFloat("custom_profile_${name}_perf", perfClock)
+            .putFloat("custom_profile_${name}_prime", primeClock)
+            .putFloat("custom_profile_${name}_gpu", gpuClock)
+            .apply()
+    }
 
     companion object {
         private const val KEY_IS_FIRST_RUN = "is_first_run"

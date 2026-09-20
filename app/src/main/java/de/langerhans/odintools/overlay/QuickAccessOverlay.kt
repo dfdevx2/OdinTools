@@ -6,7 +6,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -24,7 +23,6 @@ class QuickAccessOverlay(
     private val context: Context,
     private val prefs: SharedPrefsRepo
 ) {
-    private val TAG = "OdinOverlay"
     private val windowManager = context.getSystemService<WindowManager>()
     private val main = Handler(Looper.getMainLooper())
 
@@ -134,15 +132,24 @@ class QuickAccessOverlay(
         }
     }
 
-    private fun newParams(expanded: Boolean) = WindowManager.LayoutParams(
-        (22 * density).toInt(), // Thinner & cleaner handle
-        (70 * density).toInt(),
-        overlayType(),
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-        PixelFormat.TRANSLUCENT
-    ).also { applyGeometry(it, expanded) }
+    private fun newParams(expanded: Boolean): WindowManager.LayoutParams {
+        val widthDp = if (expanded) 390 else prefs.overlayHandleWidth.coerceIn(16, 36)
+        return WindowManager.LayoutParams(
+            (widthDp * density).toInt(),
+            if (expanded) WindowManager.LayoutParams.MATCH_PARENT else (70 * density).toInt(),
+            overlayType(),
+            if (expanded) {
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            } else {
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            },
+            PixelFormat.TRANSLUCENT
+        ).also { applyGeometry(it, expanded) }
+    }
 
     private fun applyGeometry(lp: WindowManager.LayoutParams, expanded: Boolean) {
         if (expanded) {
@@ -151,7 +158,7 @@ class QuickAccessOverlay(
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             lp.dimAmount = 0.4f
             lp.gravity = Gravity.TOP or Gravity.END
-            lp.width = (380 * density).toInt()
+            lp.width = (390 * density).toInt()
             lp.height = WindowManager.LayoutParams.MATCH_PARENT
             lp.x = 0
             lp.y = 0
@@ -161,8 +168,8 @@ class QuickAccessOverlay(
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             lp.dimAmount = 0f
             lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            lp.width = (22 * density).toInt() // Slimmer width
-            lp.height = (70 * density).toInt() // Shorter height
+            lp.width = (prefs.overlayHandleWidth.coerceIn(16, 36) * density).toInt()
+            lp.height = (70 * density).toInt()
             lp.x = 0
         }
     }

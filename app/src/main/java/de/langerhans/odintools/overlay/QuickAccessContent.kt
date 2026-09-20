@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,7 +34,7 @@ fun QuickAccessContent(
     onClose: () -> Unit
 ) {
     val currentWidth by animateDpAsState(
-        targetValue = if (isExpanded) 390.dp else 26.dp,
+        targetValue = if (isExpanded) 390.dp else prefs.overlayHandleWidth.dp,
         animationSpec = tween(250),
         label = "widthAnim"
     )
@@ -89,16 +90,24 @@ private fun QuickAccessPanel(
     var selectedTab by remember { mutableIntStateOf(0) }
 
     var reshadeProfile by remember { mutableStateOf(prefs.reshadeProfile) }
+
+    // Upscaling States
     var sgsrEnabled by remember { mutableStateOf(prefs.globalSgsrEnabled) }
     var sgsrMode by remember { mutableStateOf(prefs.sgsrMode) }
+    var sgsrSharpness by remember { mutableFloatStateOf(prefs.sgsrSharpness) }
 
     var lsfgEnabled by remember { mutableStateOf(prefs.globalLsfgEnabled) }
     var lsfgMultiplier by remember { mutableStateOf(prefs.lsfgMultiplier) }
-    val lsfgPacing: Boolean = prefs.lsfgFramePacing
+    var lsfgPacing by remember { mutableStateOf(prefs.lsfgFramePacing) }
+    var lsfgPerfMode by remember { mutableStateOf(prefs.lsfgPerformanceMode) }
+    var lsfgQuality by remember { mutableFloatStateOf(prefs.lsfgGeneratedQuality) }
 
+    // Performance States
     var tdpValue by remember { mutableFloatStateOf(15f) }
     var cpuPerfClock by remember { mutableFloatStateOf(3530f) }
+    var cpuPrimeClock by remember { mutableFloatStateOf(4320f) }
     var gpuClock by remember { mutableFloatStateOf(1100f) }
+    var savedPresetName by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -252,6 +261,18 @@ private fun QuickAccessPanel(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "Nitidez (Sharpness): ${"%.2f".format(sgsrSharpness)}", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                Slider(
+                    value = sgsrSharpness,
+                    onValueChange = {
+                        sgsrSharpness = it
+                        prefs.sgsrSharpness = it
+                    },
+                    valueRange = 0.0f..1.0f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
+
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(text = "LOSSLESS SCALING (LSFG)", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
@@ -308,14 +329,78 @@ private fun QuickAccessPanel(
                                     }
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = "Modo Performance", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                                Switch(
+                                    checked = lsfgPerfMode,
+                                    onCheckedChange = {
+                                        lsfgPerfMode = it
+                                        prefs.lsfgPerformanceMode = it
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = "Frame Pacing", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                                Switch(
+                                    checked = lsfgPacing,
+                                    onCheckedChange = {
+                                        lsfgPacing = it
+                                        prefs.lsfgFramePacing = it
+                                        VulkanNativeBridge.applyLsfg(lsfgEnabled, lsfgMultiplier, it)
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(text = "Qualidade dos Frames: ${(lsfgQuality * 100).toInt()}%", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
+                            Slider(
+                                value = lsfgQuality,
+                                onValueChange = {
+                                    lsfgQuality = it
+                                    prefs.lsfgGeneratedQuality = it
+                                },
+                                valueRange = 0.5f..1.0f,
+                                colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                            )
                         }
                     }
                 }
             }
             2 -> {
-                Text(text = "AUTOTDP & TDP LIMIT", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(text = "PERFORMANCE & TDP PROFILES", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
+                val perfProfiles: List<String> = listOf("Power Save", "Balanced", "Triple A", "Stock")
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for (prof in perfProfiles) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(theme.surface)
+                                .clickable {
+                                    when (prof) {
+                                        "Power Save" -> { tdpValue = 5f; cpuPerfClock = 1735f; cpuPrimeClock = 2246f; gpuClock = 160f }
+                                        "Balanced" -> { tdpValue = 10f; cpuPerfClock = 2400f; cpuPrimeClock = 3000f; gpuClock = 500f }
+                                        "Triple A" -> { tdpValue = 15f; cpuPerfClock = 3000f; cpuPrimeClock = 3800f; gpuClock = 800f }
+                                        "Stock" -> { tdpValue = 25f; cpuPerfClock = 3530f; cpuPrimeClock = 4320f; gpuClock = 1100f }
+                                    }
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = prof, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -332,7 +417,7 @@ private fun QuickAccessPanel(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(text = "MANUAL UNDERCLOCK / CLOCKS", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -343,14 +428,22 @@ private fun QuickAccessPanel(
                         .background(theme.surface)
                         .padding(12.dp)
                 ) {
-                    Text(text = "CPU Perf Cores: ${cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                    Text(text = "CPU Perf Cores (6x): ${cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
                     Slider(
                         value = cpuPerfClock,
                         onValueChange = { cpuPerfClock = it },
                         valueRange = 1735f..3530f,
                         colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(text = "CPU Prime Cores (2x): ${cpuPrimeClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                    Slider(
+                        value = cpuPrimeClock,
+                        onValueChange = { cpuPrimeClock = it },
+                        valueRange = 2246f..4320f,
+                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(text = "Adreno GPU: ${gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
                     Slider(
                         value = gpuClock,
@@ -358,6 +451,33 @@ private fun QuickAccessPanel(
                         valueRange = 160f..1100f,
                         colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                     )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = savedPresetName,
+                        onValueChange = { savedPresetName = it },
+                        label = { Text("Nome do Preset", fontSize = 10.sp) },
+                        modifier = Modifier.weight(1f).height(50.dp),
+                        textStyle = TextStyle(fontSize = 12.sp, color = theme.text)
+                    )
+                    Button(
+                        onClick = {
+                            if (savedPresetName.isNotBlank()) {
+                                prefs.saveCustomProfile(savedPresetName, tdpValue, cpuPerfClock, cpuPrimeClock, gpuClock)
+                                savedPresetName = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                        modifier = Modifier.height(50.dp)
+                    ) {
+                        Text("Salvar", fontSize = 11.sp, color = Color.White)
+                    }
                 }
             }
         }
