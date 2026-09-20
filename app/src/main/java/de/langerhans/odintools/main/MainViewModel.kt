@@ -74,7 +74,6 @@ class MainViewModel @Inject constructor(
                 currentSaturation = prefs.saturationOverride,
                 currentTemperature = prefs.temperatureOverride,
 
-                // Restore physical database state
                 globalLsfgEnabled = prefs.globalLsfgEnabled,
                 lsfgMultiplier = prefs.lsfgMultiplier,
                 lsfgFramePacing = prefs.lsfgFramePacing,
@@ -90,36 +89,55 @@ class MainViewModel @Inject constructor(
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
         VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
         VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+
+        // Critical: Register Vulkan Layer Manifest via Root so Android actually loads our .so file
+        registerVulkanLayerManifest()
     }
 
-    fun finishWelcomeSetup() {
-        prefs.isFirstRun = false
+    private fun registerVulkanLayerManifest() {
+        val libPath = context.applicationInfo.nativeLibraryDir + "/libOdinVulkanLayer.so"
+        val jsonDir = "/data/local/debug/vulkan"
+
+        val jsonContent = """
+            {
+                "file_format_version": "1.0.0",
+                "layer": {
+                    "name": "VK_LAYER_ODIN_HUB",
+                    "type": "GLOBAL",
+                    "library_path": "$libPath",
+                    "api_version": "1.3.200",
+                    "implementation_version": "1",
+                    "description": "Odin Hub Vulkan Injection Layer"
+                }
+            }
+        """.trimIndent()
+
+        executor.executeAsRoot("mkdir -p $jsonDir")
+        executor.executeAsRoot("echo '$jsonContent' > $jsonDir/VkLayer_odin_hub.json")
+        executor.executeAsRoot("chmod 777 $jsonDir/VkLayer_odin_hub.json")
+        // Enforce system to read custom layers from this directory
+        executor.executeAsRoot("setprop debug.vulkan.layer.dir $jsonDir")
+        // Force the layer to be enabled globally for all Vulkan apps
+        executor.executeAsRoot("setprop debug.vulkan.layers VK_LAYER_ODIN_HUB")
     }
 
+    fun finishWelcomeSetup() { prefs.isFirstRun = false }
     fun isFirstRun(): Boolean = prefs.isFirstRun
 
     // Odin Hub - Overlay Sidebar
     fun toggleOverlay(enabled: Boolean) {
         _uiState.update { it.copy(overlayEnabled = enabled) }
         val intent = Intent(context, GamingOverlayService::class.java)
-        if (enabled) {
-            context.startService(intent)
-        } else {
-            context.stopService(intent)
-        }
+        if (enabled) { context.startService(intent) } else { context.stopService(intent) }
     }
 
     fun toggleFpsOverlay(enabled: Boolean) {
         prefs.showFpsOverlay = enabled
         _uiState.update { it.copy(showFpsOverlay = enabled) }
-        // FPS Overlay logic will be handled inside the Vulkan layer presentation hook
     }
 
     // Odin Hub - Performance
-    fun updateLimitMode(mode: String) {
-        _uiState.update { it.copy(activeLimitMode = mode) }
-    }
-
+    fun updateLimitMode(mode: String) { _uiState.update { it.copy(activeLimitMode = mode) } }
     fun updatePerformanceProfile(profile: String) {
         _uiState.update { it.copy(performanceProfile = profile) }
         when (profile) {
@@ -129,12 +147,7 @@ class MainViewModel @Inject constructor(
             "Stock" -> { updateTdp(25f); updateManualClocks(3530f, 4320f, 1100f) }
         }
     }
-
-    fun updateTdp(watts: Float) {
-        _uiState.update { it.copy(tdpValue = watts) }
-        performanceManager.applyDynamicTdp(watts)
-    }
-
+    fun updateTdp(watts: Float) { _uiState.update { it.copy(tdpValue = watts) }; performanceManager.applyDynamicTdp(watts) }
     fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
         _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
         performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
@@ -148,57 +161,12 @@ class MainViewModel @Inject constructor(
     }
 
     fun updateLsfgOptions(multiplier: String, pacing: Boolean) {
-        prefs.lsfgMultiplier = multiplier
-        prefs.lsfgFramePacing = pacing
+        prefs.lsfgMultiplier = multiplier; prefs.lsfgFramePacing = pacing
         _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing) }
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing)
     }
 
-    fun updateGlobalSgsr(enabled: Boolean) {
-        prefs.globalSgsrEnabled = enabled
-        _uiState.update { it.copy(globalSgsrEnabled = enabled) }
-        VulkanNativeBridge.applySgsr(enabled, prefs.sgsrMode)
-    }
-
-    fun updateSgsrOptions(mode: String) {
-        prefs.sgsrMode = mode
-        _uiState.update { it.copy(sgsrMode = mode) }
-        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode)
-    }
-
-    fun refreshDllStatus() {
-        _uiState.update { it.copy(isDllImported = losslessManager.isDllImported) }
-    }
-
-    fun applyReshadeProfile(profile: String) {
-        prefs.reshadeProfile = profile
-        _uiState.update { it.copy(reshadeProfile = profile) }
-
-        var sat = 1.0f
-        var temp = 6500f
-
-        // Base screen calibration
-        when (profile) {
-            "Native", "Nativo" -> { sat = 1.0f; temp = 6500f }
-            "Vibrant", "Vibrante" -> { sat = 1.3f; temp = 6800f }
-            "Cinema" -> { sat = 0.85f; temp = 5500f }
-            "Retro", "Retrô" -> { sat = 0.7f; temp = 7500f }
-            "HDR Boost" -> { sat = 1.6f; temp = 6500f }
-        }
-
-        saveSaturation(sat)
-        saveTemperature(temp)
-
-        // Push shader profile to Vulkan C++ layer
-        VulkanNativeBridge.applyReshade(profile, sat, temp)
-
-        // Inject Vulkan layer hook globally if an advanced shader is selected
-        if (profile == "Native" || profile == "Nativo") {
-            executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
-        } else {
-            executor.executeAsRoot("setprop debug.vulkan.layers VK_LAYER_ODIN_HUB")
-        }
-    }
+    fun refreshDllStatus() { _uiState.update { it.copy(isDllImported = losslessManager.isDllImported) } }
 
     fun saveSaturation(newValue: Float) {
         prefs.saturationOverride = newValue
@@ -210,6 +178,12 @@ class MainViewModel @Inject constructor(
         prefs.temperatureOverride = newValue
         displayManager.applyTemperature(newValue)
         _uiState.update { it.copy(currentTemperature = newValue) }
+    }
+
+    // New: Reset colors to absolute native hardware values
+    fun resetDisplayColors() {
+        saveSaturation(1.0f)
+        saveTemperature(6500f)
     }
 
     // Native OdinTools Functions
