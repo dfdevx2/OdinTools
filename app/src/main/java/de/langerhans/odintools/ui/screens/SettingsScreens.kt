@@ -252,6 +252,35 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     val isClockMode = uiState.activeLimitMode == "CLOCK"
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+        // App Overrides Card Restored
+        ConsoleCard(
+            if (isEn) "Per-App Overrides" else "Configurações por Aplicativo",
+            if (isEn) "Customize TDP, Clocks, and Shaders per game" else "Personalize TDP, Clocks e Shaders individualmente por jogo",
+            theme,
+            playClick = { navigateToOverrideList(); playClick() }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (isEn) "Manage game-specific rules" else "Gerenciar regras específicas de jogos",
+                    color = theme.text,
+                    fontFamily = theme.fontFamily,
+                    fontSize = 12.sp
+                )
+                Text(
+                    if (isEn) "Configure >" else "Configurar >",
+                    color = theme.primary,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = theme.fontFamily,
+                    fontSize = 12.sp
+                )
+            }
+        }
+
         ConsoleSectionHeader(if (isEn) "Hardware Limitation Mode" else "Modo de Limitação de Hardware", theme)
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(4.dp)) {
             Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("TDP"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text(if (isEn) "Lock by TDP" else "Limitar por TDP", color = if (isTdpMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily) }

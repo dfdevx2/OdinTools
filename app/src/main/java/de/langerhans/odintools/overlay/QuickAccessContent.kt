@@ -16,11 +16,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.langerhans.odintools.data.SharedPrefsRepo
+import de.langerhans.odintools.tools.ShellExecutor
+import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import de.langerhans.odintools.ui.theme.ConsoleTheme
 
@@ -87,9 +90,13 @@ private fun QuickAccessPanel(
     isDllReady: Boolean,
     onClose: () -> Unit
 ) {
+    val context = LocalContext.current
+    val performanceManager = remember { PerformanceManager(ShellExecutor()) }
+    val currentApp = prefs.currentForegroundApp
+
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    var reshadeProfile by remember { mutableStateOf(prefs.reshadeProfile) }
+    var reshadeProfile by remember { mutableStateOf(prefs.getPerAppReshade(currentApp, prefs.reshadeProfile)) }
 
     // Upscaling States
     var sgsrEnabled by remember { mutableStateOf(prefs.globalSgsrEnabled) }
@@ -102,12 +109,21 @@ private fun QuickAccessPanel(
     var lsfgPerfMode by remember { mutableStateOf(prefs.lsfgPerformanceMode) }
     var lsfgQuality by remember { mutableFloatStateOf(prefs.lsfgGeneratedQuality) }
 
-    // Performance States
-    var tdpValue by remember { mutableFloatStateOf(15f) }
-    var cpuPerfClock by remember { mutableFloatStateOf(3530f) }
-    var cpuPrimeClock by remember { mutableFloatStateOf(4320f) }
-    var gpuClock by remember { mutableFloatStateOf(1100f) }
+    // Performance States (Mutually Exclusive: TDP vs CLOCK)
+    var activeLimitMode by remember { mutableStateOf("TDP") }
+    var tdpValue by remember { mutableFloatStateOf(prefs.getPerAppTdp(currentApp, 15f)) }
+    var cpuPerfClock by remember { mutableFloatStateOf(prefs.getPerAppPerfClock(currentApp, 3530f)) }
+    var cpuPrimeClock by remember { mutableFloatStateOf(prefs.getPerAppPrimeClock(currentApp, 4320f)) }
+    var gpuClock by remember { mutableFloatStateOf(prefs.getPerAppGpuClock(currentApp, 1100f)) }
+
     var savedPresetName by remember { mutableStateOf("") }
+
+    // Auto-save per-app configuration on close
+    DisposableEffect(Unit) {
+        onDispose {
+            prefs.savePerAppConfig(currentApp, tdpValue, cpuPerfClock, cpuPrimeClock, gpuClock, reshadeProfile, sgsrEnabled, sgsrMode, lsfgEnabled)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -199,7 +215,6 @@ private fun QuickAccessPanel(
                                         .border(1.dp, if (isSelected) theme.primary else theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
                                         .clickable {
                                             reshadeProfile = profile
-                                            prefs.reshadeProfile = profile
                                             VulkanNativeBridge.applyReshade(profile, prefs.saturationOverride, prefs.temperatureOverride)
                                         }
                                         .padding(vertical = 8.dp),
@@ -230,7 +245,6 @@ private fun QuickAccessPanel(
                         checked = sgsrEnabled,
                         onCheckedChange = {
                             sgsrEnabled = it
-                            prefs.globalSgsrEnabled = it
                             VulkanNativeBridge.applySgsr(it, sgsrMode)
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
@@ -250,7 +264,6 @@ private fun QuickAccessPanel(
                                 .background(if (isSel) theme.primary else theme.surface)
                                 .clickable {
                                     sgsrMode = mode
-                                    prefs.sgsrMode = mode
                                     VulkanNativeBridge.applySgsr(sgsrEnabled, mode)
                                 }
                                 .padding(vertical = 6.dp),
@@ -265,10 +278,7 @@ private fun QuickAccessPanel(
                 Text(text = "Nitidez (Sharpness): ${"%.2f".format(sgsrSharpness)}", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
                 Slider(
                     value = sgsrSharpness,
-                    onValueChange = {
-                        sgsrSharpness = it
-                        prefs.sgsrSharpness = it
-                    },
+                    onValueChange = { sgsrSharpness = it },
                     valueRange = 0.0f..1.0f,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
@@ -297,7 +307,6 @@ private fun QuickAccessPanel(
                                 enabled = isDllReady,
                                 onCheckedChange = {
                                     lsfgEnabled = it
-                                    prefs.globalLsfgEnabled = it
                                     VulkanNativeBridge.applyLsfg(it, lsfgMultiplier, lsfgPacing)
                                 },
                                 colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
@@ -319,7 +328,6 @@ private fun QuickAccessPanel(
                                                 .background(if (lsfgMultiplier == mult) theme.primary else theme.surface.copy(alpha = 0.6f))
                                                 .clickable {
                                                     lsfgMultiplier = mult
-                                                    prefs.lsfgMultiplier = mult
                                                     VulkanNativeBridge.applyLsfg(lsfgEnabled, mult, lsfgPacing)
                                                 }
                                                 .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -329,154 +337,221 @@ private fun QuickAccessPanel(
                                     }
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = "Modo Performance", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
-                                Switch(
-                                    checked = lsfgPerfMode,
-                                    onCheckedChange = {
-                                        lsfgPerfMode = it
-                                        prefs.lsfgPerformanceMode = it
-                                    },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = "Frame Pacing", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
-                                Switch(
-                                    checked = lsfgPacing,
-                                    onCheckedChange = {
-                                        lsfgPacing = it
-                                        prefs.lsfgFramePacing = it
-                                        VulkanNativeBridge.applyLsfg(lsfgEnabled, lsfgMultiplier, it)
-                                    },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f))
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(text = "Qualidade dos Frames: ${(lsfgQuality * 100).toInt()}%", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
-                            Slider(
-                                value = lsfgQuality,
-                                onValueChange = {
-                                    lsfgQuality = it
-                                    prefs.lsfgGeneratedQuality = it
-                                },
-                                valueRange = 0.5f..1.0f,
-                                colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                            )
                         }
                     }
                 }
             }
             2 -> {
-                Text(text = "PERFORMANCE & TDP PROFILES", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(text = "MODO DE LIMITAÇÃO DE HARDWARE", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val perfProfiles: List<String> = listOf("Power Save", "Balanced", "Triple A", "Stock")
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    for (prof in perfProfiles) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(theme.surface)
-                                .clickable {
-                                    when (prof) {
-                                        "Power Save" -> { tdpValue = 5f; cpuPerfClock = 1735f; cpuPrimeClock = 2246f; gpuClock = 160f }
-                                        "Balanced" -> { tdpValue = 10f; cpuPerfClock = 2400f; cpuPrimeClock = 3000f; gpuClock = 500f }
-                                        "Triple A" -> { tdpValue = 15f; cpuPerfClock = 3000f; cpuPrimeClock = 3800f; gpuClock = 800f }
-                                        "Stock" -> { tdpValue = 25f; cpuPerfClock = 3530f; cpuPrimeClock = 4320f; gpuClock = 1100f }
-                                    }
-                                }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = prof, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (activeLimitMode == "TDP") theme.primary else Color.Transparent)
+                            .clickable { activeLimitMode = "TDP" }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "Limitar por TDP", color = if (activeLimitMode == "TDP") Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (activeLimitMode == "CLOCK") theme.primary else Color.Transparent)
+                            .clickable { activeLimitMode = "CLOCK" }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "Limitar por Clocks", color = if (activeLimitMode == "CLOCK") Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(theme.surface)
-                        .padding(12.dp)
-                ) {
-                    Text(text = "TDP Limit: ${tdpValue.toInt()} W", color = theme.text, fontSize = 12.sp)
-                    Slider(
-                        value = tdpValue,
-                        onValueChange = { tdpValue = it },
-                        valueRange = 5f..25f,
-                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                    )
-                }
+                Spacer(modifier = Modifier.height(14.dp))
 
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(text = "MANUAL UNDERCLOCK / CLOCKS", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(theme.surface)
-                        .padding(12.dp)
-                ) {
-                    Text(text = "CPU Perf Cores (6x): ${cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                    Slider(
-                        value = cpuPerfClock,
-                        onValueChange = { cpuPerfClock = it },
-                        valueRange = 1735f..3530f,
-                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                    )
+                if (activeLimitMode == "TDP") {
+                    Text(text = "PERFIS & SLIDER DE TDP", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text(text = "CPU Prime Cores (2x): ${cpuPrimeClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                    Slider(
-                        value = cpuPrimeClock,
-                        onValueChange = { cpuPrimeClock = it },
-                        valueRange = 2246f..4320f,
-                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(text = "Adreno GPU: ${gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
-                    Slider(
-                        value = gpuClock,
-                        onValueChange = { gpuClock = it },
-                        valueRange = 160f..1100f,
-                        colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
-                    )
-                }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = savedPresetName,
-                        onValueChange = { savedPresetName = it },
-                        label = { Text("Nome do Preset", fontSize = 10.sp) },
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        textStyle = TextStyle(fontSize = 12.sp, color = theme.text)
-                    )
-                    Button(
-                        onClick = {
-                            if (savedPresetName.isNotBlank()) {
-                                prefs.saveCustomProfile(savedPresetName, tdpValue, cpuPerfClock, cpuPrimeClock, gpuClock)
-                                savedPresetName = ""
+                    val tdpProfiles = listOf("Power Save" to 5f, "Balanced" to 10f, "Triple A" to 15f, "Stock" to 25f)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for ((profName, watts) in tdpProfiles) {
+                            val isSel = tdpValue == watts
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSel) theme.primary else theme.surface)
+                                    .clickable {
+                                        tdpValue = watts
+                                        performanceManager.applyDynamicTdp(watts)
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
-                        modifier = Modifier.height(50.dp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(theme.surface)
+                            .padding(12.dp)
                     ) {
-                        Text("Salvar", fontSize = 11.sp, color = Color.White)
+                        Text(text = "TDP Limit: ${tdpValue.toInt()} W", color = theme.text, fontSize = 12.sp)
+                        Slider(
+                            value = tdpValue,
+                            onValueChange = {
+                                tdpValue = it
+                                performanceManager.applyDynamicTdp(it)
+                            },
+                            valueRange = 5f..25f,
+                            colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = savedPresetName,
+                            onValueChange = { savedPresetName = it },
+                            label = { Text("Salvar Perfil TDP", fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f).height(50.dp),
+                            textStyle = TextStyle(fontSize = 12.sp, color = theme.text)
+                        )
+                        Button(
+                            onClick = {
+                                if (savedPresetName.isNotBlank()) {
+                                    prefs.saveCustomProfile(savedPresetName, "TDP", tdpValue, 0f, 0f, 0f)
+                                    savedPresetName = ""
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                            modifier = Modifier.height(50.dp)
+                        ) {
+                            Text("Salvar", fontSize = 11.sp, color = Color.White)
+                        }
+                    }
+
+                } else {
+                    Text(text = "PERFIS & CLOCKS INDEPENDENTES", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val clockProfiles = listOf("Power Save", "Balanced", "Triple A", "Stock")
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (profName in clockProfiles) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(theme.surface)
+                                    .clickable {
+                                        when (profName) {
+                                            "Power Save" -> { cpuPerfClock = 1735f; cpuPrimeClock = 2246f; gpuClock = 160f }
+                                            "Balanced" -> { cpuPerfClock = 2400f; cpuPrimeClock = 3000f; gpuClock = 500f }
+                                            "Triple A" -> { cpuPerfClock = 3000f; cpuPrimeClock = 3800f; gpuClock = 800f }
+                                            "Stock" -> { cpuPerfClock = 3530f; cpuPrimeClock = 4320f; gpuClock = 1100f }
+                                        }
+                                        performanceManager.applyAbsoluteClocks(
+                                            (cpuPerfClock * 1000).toLong(),
+                                            (cpuPrimeClock * 1000).toLong(),
+                                            (gpuClock * 1000000).toLong()
+                                        )
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(theme.surface)
+                            .padding(12.dp)
+                    ) {
+                        Text(text = "CPU Perf Cores (6x): ${cpuPerfClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                        Slider(
+                            value = cpuPerfClock,
+                            onValueChange = {
+                                cpuPerfClock = it
+                                performanceManager.applyAbsoluteClocks((it * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                            },
+                            valueRange = 1735f..3530f,
+                            colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = "CPU Prime Cores (2x): ${cpuPrimeClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                        Slider(
+                            value = cpuPrimeClock,
+                            onValueChange = {
+                                cpuPrimeClock = it
+                                performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (it * 1000).toLong(), (gpuClock * 1000000).toLong())
+                            },
+                            valueRange = 2246f..4320f,
+                            colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = "Adreno GPU: ${gpuClock.toInt()} MHz", color = theme.text, fontSize = 11.sp)
+                        Slider(
+                            value = gpuClock,
+                            onValueChange = {
+                                gpuClock = it
+                                performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (it * 1000000).toLong())
+                            },
+                            valueRange = 160f..1100f,
+                            colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = savedPresetName,
+                            onValueChange = { savedPresetName = it },
+                            label = { Text("Salvar Perfil Clocks", fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f).height(50.dp),
+                            textStyle = TextStyle(fontSize = 12.sp, color = theme.text)
+                        )
+                        Button(
+                            onClick = {
+                                if (savedPresetName.isNotBlank()) {
+                                    prefs.saveCustomProfile(savedPresetName, "CLOCK", cpuPerfClock, cpuPrimeClock, gpuClock, 0f)
+                                    savedPresetName = ""
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                            modifier = Modifier.height(50.dp)
+                        ) {
+                            Text("Salvar", fontSize = 11.sp, color = Color.White)
+                        }
                     }
                 }
             }
