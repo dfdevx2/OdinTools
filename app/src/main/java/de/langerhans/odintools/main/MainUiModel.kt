@@ -39,7 +39,11 @@ data class MainUiModel(
     val videoOutputControllerStyle: ControllerStyle = ControllerStyle.Unknown,
     val videoOutputL2R2Style: L2R2Style = L2R2Style.Unknown,
 
-    // Estados Odin Hub - Performance
+    // Odin Hub Theme States
+    val selectedThemeIndex: Int = 1,
+    val useAmoledBlack: Boolean = false,
+
+    // Odin Hub Performance States
     val performanceProfile: String = "Stock",
     val tdpValue: Float = 15f,
     val cpuPerfClock: Float = 3530f,
@@ -50,7 +54,7 @@ data class MainUiModel(
     val showSaveProfileDialog: Boolean = false,
     val useRootTarget: Boolean = false,
 
-    // Estados Odin Hub - Display
+    // Odin Hub Display States
     val globalLsfgEnabled: Boolean = false,
     val globalSgsrEnabled: Boolean = false,
     val lsfgMultiplier: String = "2x",
@@ -59,9 +63,9 @@ data class MainUiModel(
     val sgsrMode: String = "Quality",
     val sgsrSharpness: Float = 0.5f,
     val reshadeProfile: String = "Native",
-    val showFpsOverlay: Boolean = false, // Propriedade adicionada
+    val showFpsOverlay: Boolean = false,
 
-    // Estados Odin Hub - Overlay e DLL
+    // Odin Hub Overlay & DLL States
     val isDllImported: Boolean = false,
     val overlayEnabled: Boolean = false
 )

@@ -33,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -44,8 +43,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -66,19 +63,17 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val lifecycleOwner = LocalLifecycleOwner.current
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showWelcomeSetup by rememberSaveable { mutableStateOf(viewModel.isFirstRun()) }
     var showBootAnimation by rememberSaveable { mutableStateOf(false) }
 
-    var currentThemeIndex by rememberSaveable { mutableIntStateOf(1) }
-    var useAmoledBlack by rememberSaveable { mutableStateOf(false) }
     var currentLanguage by rememberSaveable { mutableStateOf("Português (PT-BR)") }
     val isEn = currentLanguage == "English (US)"
 
-    val rawTheme = AvailableThemes.getOrElse(currentThemeIndex) { AvailableThemes[0] }
-    val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
+    // Theme values retrieved directly from ViewModel database
+    val rawTheme = AvailableThemes.getOrElse(uiState.selectedThemeIndex) { AvailableThemes[0] }
+    val finalTheme = getResolvedTheme(rawTheme, uiState.useAmoledBlack)
 
     var liveWallpaperType by rememberSaveable { mutableStateOf("Static") }
     var blurEnabled by rememberSaveable { mutableStateOf(true) }
@@ -96,9 +91,18 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 
     if (showWelcomeSetup) {
         OdinHubWelcomeScreen(
-            theme = finalTheme, isEn = isEn, currentThemeIndex = currentThemeIndex, amoledBlack = useAmoledBlack,
-            onThemeChange = { currentThemeIndex = it }, onAmoledToggle = { useAmoledBlack = it }, onLanguageChange = { currentLanguage = it },
-            onFinish = { viewModel.finishWelcomeSetup(); showWelcomeSetup = false; showBootAnimation = true }
+            theme = finalTheme,
+            isEn = isEn,
+            currentThemeIndex = uiState.selectedThemeIndex,
+            amoledBlack = uiState.useAmoledBlack,
+            onThemeChange = { viewModel.updateThemeIndex(it) },
+            onAmoledToggle = { viewModel.updateAmoledBlack(it) },
+            onLanguageChange = { currentLanguage = it },
+            onFinish = {
+                viewModel.finishWelcomeSetup()
+                showWelcomeSetup = false
+                showBootAnimation = true
+            }
         )
         return
     }
@@ -135,7 +139,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                             0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
                             1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
                             2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                            3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = currentThemeIndex, currentLanguage = currentLanguage, onThemeChange = { currentThemeIndex = it }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { useAmoledBlack = it }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
+                            3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }) { playSfx(R.raw.sfx_select) }
                         }
                     }
                 }
@@ -290,22 +294,22 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
                     ConsoleToggle(checked = uiState.globalLsfgEnabled, theme = theme, onCheckedChange = { if (uiState.isDllImported) { viewModel.updateGlobalLsfg(it); playClick() } })
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Multiplicador", color = theme.text, fontFamily = theme.fontFamily)
                     Box {
                         Text(uiState.lsfgMultiplier, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (uiState.globalLsfgEnabled) { expandedLsfgMult = true; playClick() } }.alpha(if(uiState.globalLsfgEnabled) 1f else 0.5f))
                         DropdownMenu(expanded = expandedLsfgMult, onDismissRequest = { expandedLsfgMult = false }, modifier = Modifier.background(theme.surface)) {
-                            listOf("2x", "3x", "4x").forEach { mult -> DropdownMenuItem(text = { Text(mult, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { viewModel.updateLsfgOptions(mult, uiState.lsfgFramePacing); expandedLsfgMult = false; playClick() }) }
+                            listOf("2x", "3x").forEach { mult -> DropdownMenuItem(text = { Text(mult, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { viewModel.updateLsfgOptions(mult, uiState.lsfgFramePacing); expandedLsfgMult = false; playClick() }) }
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Sincronia (Frame Pacing)", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = uiState.lsfgFramePacing, theme = theme, onCheckedChange = { viewModel.updateLsfgOptions(uiState.lsfgMultiplier, it); playClick() })
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Exibir Contador de FPS LSFG", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = uiState.showFpsOverlay, theme = theme, onCheckedChange = { viewModel.toggleFpsOverlay(it); playClick() })
                 }
@@ -313,7 +317,6 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
         }
 
         ConsoleSectionHeader(if (isEn) "Color Calibration" else "Calibração Vulkan", theme)
-        // Perfis ReShade removidos do Global, mantidos apenas os manuais
         ConsoleCard("Ajustes Manuais", "Saturação & Temperatura", theme) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

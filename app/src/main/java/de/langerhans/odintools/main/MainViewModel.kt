@@ -59,7 +59,7 @@ class MainViewModel @Inject constructor(
         settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
-        // Critical safety reset: Clear global Vulkan layer property on launch to prevent system-wide crashes
+        // Clear unsafe global layer property on start
         executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
         executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
 
@@ -75,6 +75,9 @@ class MainViewModel @Inject constructor(
                 chargeLimitEnabled = prefs.chargeLimitEnabled,
                 videoOutputOverrideEnabled = prefs.videoOutputOverrideEnabled,
 
+                selectedThemeIndex = prefs.selectedThemeIndex,
+                useAmoledBlack = prefs.useAmoledBlack,
+
                 currentSaturation = prefs.saturationOverride,
                 currentTemperature = prefs.temperatureOverride,
 
@@ -89,10 +92,19 @@ class MainViewModel @Inject constructor(
             )
         }
 
-        // Push initial states to the C++ Vulkan Bridge
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
         VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
         VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+    }
+
+    fun updateThemeIndex(newIndex: Int) {
+        prefs.selectedThemeIndex = newIndex
+        _uiState.update { it.copy(selectedThemeIndex = newIndex) }
+    }
+
+    fun updateAmoledBlack(enabled: Boolean) {
+        prefs.useAmoledBlack = enabled
+        _uiState.update { it.copy(useAmoledBlack = enabled) }
     }
 
     fun finishWelcomeSetup() {
@@ -142,7 +154,7 @@ class MainViewModel @Inject constructor(
         performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
     }
 
-    // Odin Hub - Display & Vulkan Shaders
+    // Odin Hub - Display
     fun updateGlobalLsfg(enabled: Boolean) {
         prefs.globalLsfgEnabled = enabled
         _uiState.update { it.copy(globalLsfgEnabled = enabled) }
@@ -177,7 +189,7 @@ class MainViewModel @Inject constructor(
         saveTemperature(6500f)
     }
 
-    // Native OdinTools Functions
+    // Native OdinTools Methods
     fun incompatibleDeviceDialogDismissed() {
         _uiState.update { it.copy(showIncompatibleDeviceDialog = false) }
     }

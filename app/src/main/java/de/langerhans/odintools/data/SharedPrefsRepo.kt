@@ -16,6 +16,14 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getBoolean(KEY_IS_FIRST_RUN, true)
         set(value) = prefs.edit().putBoolean(KEY_IS_FIRST_RUN, value).apply()
 
+    var selectedThemeIndex: Int
+        get() = prefs.getInt(KEY_SELECTED_THEME_INDEX, 1)
+        set(value) = prefs.edit().putInt(KEY_SELECTED_THEME_INDEX, value).apply()
+
+    var useAmoledBlack: Boolean
+        get() = prefs.getBoolean(KEY_USE_AMOLED_BLACK, false)
+        set(value) = prefs.edit().putBoolean(KEY_USE_AMOLED_BLACK, value).apply()
+
     var disabledControllerStyle: String?
         get() = prefs.getString(KEY_DISABLED_CONTROLLER_STYLE, null)
         set(value) = prefs.edit().putString(KEY_DISABLED_CONTROLLER_STYLE, value).apply()
@@ -68,7 +76,6 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getString(KEY_VIDEO_OUTPUT_L2R2_STYLE, null)
         set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
 
-    // Persistência Global Odin Hub (Anti-Reset)
     var globalLsfgEnabled: Boolean
         get() = prefs.getBoolean(KEY_GLOBAL_LSFG_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_GLOBAL_LSFG_ENABLED, value).apply()
@@ -99,6 +106,8 @@ class SharedPrefsRepo @Inject constructor(
 
     companion object {
         private const val KEY_IS_FIRST_RUN = "is_first_run"
+        private const val KEY_SELECTED_THEME_INDEX = "selected_theme_index"
+        private const val KEY_USE_AMOLED_BLACK = "use_amoled_black"
         private const val KEY_DISABLED_CONTROLLER_STYLE = "disabled_controller_style"
         private const val KEY_DISABLED_L2R2_STYLE = "disabled_l2r2_style"
         private const val KEY_SATURATION_OVERRIDE = "saturation_override"
