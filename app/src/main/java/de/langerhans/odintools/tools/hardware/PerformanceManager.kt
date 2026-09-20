@@ -69,39 +69,25 @@ class PerformanceManager @Inject constructor(
     }
 
     /**
-     * ESTRATÉGIA DO PULSE: Escreve todos os comandos em formato de script shell unificado.
-     * Isto garante que o desbloqueio (666), escrita (echo) e bloqueio de segurança (444)
-     * ocorram na mesma sessão atômica do KernelSU / pservbinder, evitando rejeição do kernel.
+     * CORREÇÃO CRUCIAL: O comando `su -c` do Android falha com quebras de linha (`\n`).
+     * Unir tudo com `&&` numa string linear garante que a permissão e a escrita ocorram com sucesso.
      */
     private fun writeLimitsToSysfsAtomic() {
-        val script = buildString {
-            appendLine("#!/system/bin/sh")
-            // Perf Cores (Policy 0)
-            appendLine("chmod 666 $SYSFS_CPU_PERF_MAX")
-            appendLine("echo $targetPerf > $SYSFS_CPU_PERF_MAX")
-            appendLine("chmod 444 $SYSFS_CPU_PERF_MAX")
-
-            // Prime Cores (Policy 6)
-            appendLine("chmod 666 $SYSFS_CPU_PRIME_MAX")
-            appendLine("echo $targetPrime > $SYSFS_CPU_PRIME_MAX")
-            appendLine("chmod 444 $SYSFS_CPU_PRIME_MAX")
-
-            // Adreno GPU
-            appendLine("chmod 666 $SYSFS_GPU_MAX")
-            appendLine("echo $targetGpu > $SYSFS_GPU_MAX")
-            appendLine("chmod 444 $SYSFS_GPU_MAX")
+        val cmd = buildString {
+            append("chmod 666 $SYSFS_CPU_PERF_MAX && echo$targetPerf > $SYSFS_CPU_PERF_MAX && chmod 444$SYSFS_CPU_PERF_MAX && ")
+            append("chmod 666 $SYSFS_CPU_PRIME_MAX && echo$targetPrime > $SYSFS_CPU_PRIME_MAX && chmod 444$SYSFS_CPU_PRIME_MAX && ")
+            append("chmod 666 $SYSFS_GPU_MAX && echo$targetGpu > $SYSFS_GPU_MAX && chmod 444$SYSFS_GPU_MAX")
         }
-
-        // Executa o script atômico através do executor root / pserverbinder existente no app
-        executor.executeAsRoot(script)
+        executor.executeAsRoot(cmd)
     }
 
     fun applyDynamicTdp(watts: Float) {
         isAutoTdp = true
         targetWatts = watts.coerceIn(3f, 25f)
-        targetPerf = PERF_MAX_KHZ / 2
-        targetPrime = PRIME_MAX_KHZ / 2
-        targetGpu = GPU_MAX_HZ / 2
+        val ratio = (watts / 25f).coerceIn(0.2f, 1.0f)
+        targetPerf = (PERF_MAX_KHZ * ratio).toLong().coerceAtLeast(PERF_MIN_KHZ)
+        targetPrime = (PRIME_MAX_KHZ * ratio).toLong().coerceAtLeast(PRIME_MIN_KHZ)
+        targetGpu = (GPU_MAX_HZ * ratio).toLong().coerceAtLeast(GPU_MIN_HZ)
         writeLimitsToSysfsAtomic()
     }
 
