@@ -1,6 +1,7 @@
 package de.langerhans.odintools.main
 
 import androidx.annotation.StringRes
+import de.langerhans.odintools.data.CustomProfile
 import de.langerhans.odintools.models.ControllerStyle
 import de.langerhans.odintools.models.L2R2Style
 import de.langerhans.odintools.tools.DeviceType
@@ -28,33 +29,22 @@ data class MainUiModel(
     val currentButtonKeyCode: Int = 0,
 
     val appOverridesEnabled: Boolean = false,
-    val overrideDelayEnabled: Boolean = false,
 
-    val showChargeLimitDialog: Boolean = false,
-    val chargeLimitEnabled: Boolean = false,
-    val currentChargeLimit: ClosedRange<Int> = 75..85,
-
-    val showVideoOutputOverrideDialog: Boolean = false,
-    val videoOutputOverrideEnabled: Boolean = false,
-    val videoOutputControllerStyle: ControllerStyle = ControllerStyle.Unknown,
-    val videoOutputL2R2Style: L2R2Style = L2R2Style.Unknown,
-
-    // Odin Hub Theme States
     val selectedThemeIndex: Int = 1,
     val useAmoledBlack: Boolean = false,
 
-    // Odin Hub Performance States
+    // --- HARDWARE & PERFORMANCE STATES ---
     val performanceProfile: String = "Stock",
     val tdpValue: Float = 15f,
     val cpuPerfClock: Float = 3530f,
     val cpuPrimeClock: Float = 4320f,
     val gpuClock: Float = 1100f,
     val activeLimitMode: String = "TDP",
-    val savedCustomProfiles: List<String> = emptyList(),
-    val showSaveProfileDialog: Boolean = false,
     val useRootTarget: Boolean = false,
+    val fanMode: Int = 0,
+    val customProfiles: List<CustomProfile> = emptyList(),
 
-    // Odin Hub Display & Upscaling States
+    // --- DISPLAY & UPSCALING STATES ---
     val globalLsfgEnabled: Boolean = false,
     val globalSgsrEnabled: Boolean = false,
     val lsfgMultiplier: String = "2x",
@@ -64,9 +54,9 @@ data class MainUiModel(
     val sgsrSharpness: Float = 0.5f,
     val reshadeProfile: String = "Native",
     val showFpsOverlay: Boolean = false,
-
-    // Odin Hub Overlay & Handle Customization States
     val isDllImported: Boolean = false,
+
+    // --- OVERLAY STATES ---
     val overlayEnabled: Boolean = false,
     val overlayHandleOpacity: Float = 0.5f,
     val overlayHandleWidth: Int = 22

@@ -63,15 +63,14 @@ class MainViewModel @Inject constructor(
                 showIncompatibleDeviceDialog = deviceType != ODIN2,
                 singlePressHomeEnabled = !settings.preventPressHome,
                 showPServerNotAvailableDialog = !executor.pServerAvailable,
-                overrideDelayEnabled = prefs.overrideDelay,
                 vibrationEnabled = settings.vibrationEnabled,
-                chargeLimitEnabled = prefs.chargeLimitEnabled,
-                videoOutputOverrideEnabled = prefs.videoOutputOverrideEnabled,
                 appOverridesEnabled = prefs.appOverridesEnabled,
 
                 selectedThemeIndex = prefs.selectedThemeIndex,
                 useAmoledBlack = prefs.useAmoledBlack,
                 useRootTarget = prefs.useRootTarget,
+                fanMode = prefs.fanMode,
+                customProfiles = prefs.getAllCustomProfiles(),
 
                 currentSaturation = prefs.saturationOverride,
                 currentTemperature = prefs.temperatureOverride,
@@ -101,51 +100,15 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun updateThemeIndex(newIndex: Int) {
-        prefs.selectedThemeIndex = newIndex
-        _uiState.update { it.copy(selectedThemeIndex = newIndex) }
-    }
-
-    fun updateAmoledBlack(enabled: Boolean) {
-        prefs.useAmoledBlack = enabled
-        _uiState.update { it.copy(useAmoledBlack = enabled) }
-    }
-
     fun updateUseRootTarget(enabled: Boolean) {
         prefs.useRootTarget = enabled
         _uiState.update { it.copy(useRootTarget = enabled) }
     }
 
-    fun finishWelcomeSetup() {
-        prefs.isFirstRun = false
-    }
-
-    fun isFirstRun(): Boolean = prefs.isFirstRun
-
-    fun toggleOverlay(enabled: Boolean) {
-        prefs.overlayEnabled = enabled
-        _uiState.update { it.copy(overlayEnabled = enabled) }
-        val intent = Intent(context, GamingOverlayService::class.java)
-        if (enabled) {
-            context.startService(intent)
-        } else {
-            context.stopService(intent)
-        }
-    }
-
-    fun updateHandleOpacity(opacity: Float) {
-        prefs.overlayHandleOpacity = opacity
-        _uiState.update { it.copy(overlayHandleOpacity = opacity) }
-    }
-
-    fun updateHandleWidth(width: Int) {
-        prefs.overlayHandleWidth = width
-        _uiState.update { it.copy(overlayHandleWidth = width) }
-    }
-
-    fun toggleFpsOverlay(enabled: Boolean) {
-        prefs.showFpsOverlay = enabled
-        _uiState.update { it.copy(showFpsOverlay = enabled) }
+    fun updateFanMode(mode: Int) {
+        prefs.fanMode = mode
+        _uiState.update { it.copy(fanMode = mode) }
+        runCatching { executor.setIntSystemSetting("fan_mode", mode) }
     }
 
     fun updateLimitMode(mode: String) {
@@ -164,128 +127,38 @@ class MainViewModel @Inject constructor(
 
     fun saveCustomProfile(name: String, type: String, val1: Float, val2: Float, val3: Float, val4: Float) {
         prefs.saveCustomProfile(name, type, val1, val2, val3, val4)
+        _uiState.update { it.copy(customProfiles = prefs.getAllCustomProfiles()) }
     }
 
-    fun updateGlobalLsfg(enabled: Boolean) {
-        prefs.globalLsfgEnabled = enabled
-        _uiState.update { it.copy(globalLsfgEnabled = enabled) }
-        VulkanNativeBridge.applyLsfg(enabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
-    }
-
-    fun updateLsfgOptions(multiplier: String, pacing: Boolean) {
-        prefs.lsfgMultiplier = multiplier
-        prefs.lsfgFramePacing = pacing
-        _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing) }
-        VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing)
-    }
-
-    fun updateGlobalSgsr(enabled: Boolean) {
-        prefs.globalSgsrEnabled = enabled
-        _uiState.update { it.copy(globalSgsrEnabled = enabled) }
-        VulkanNativeBridge.applySgsr(enabled, prefs.sgsrMode)
-    }
-
-    fun updateSgsrOptions(mode: String, sharpness: Float) {
-        prefs.sgsrMode = mode
-        prefs.sgsrSharpness = sharpness
-        _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }
-        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode)
-    }
-
-    fun refreshDllStatus() {
-        _uiState.update { it.copy(isDllImported = losslessManager.isDllImported) }
-    }
-
-    fun saveSaturation(newValue: Float) {
-        prefs.saturationOverride = newValue
-        displayManager.applySaturation(newValue)
-        _uiState.update { it.copy(currentSaturation = newValue) }
-    }
-
-    fun saveTemperature(newValue: Float) {
-        prefs.temperatureOverride = newValue
-        displayManager.applyTemperature(newValue)
-        _uiState.update { it.copy(currentTemperature = newValue) }
-    }
-
-    fun resetDisplayColors() {
-        saveSaturation(1.0f)
-        saveTemperature(6500f)
-    }
-
-    fun incompatibleDeviceDialogDismissed() {
-        _uiState.update { it.copy(showIncompatibleDeviceDialog = false) }
-    }
-
-    fun updateSinglePressHomePreference(newValue: Boolean) {
-        settings.preventPressHome = !newValue
-        _uiState.update { it.copy(singlePressHomeEnabled = newValue) }
-    }
-
-    fun showControllerStylePreference() {
-        _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList()
-        _uiState.update { it.copy(showControllerStyleDialog = true) }
-    }
-
-    fun hideControllerStylePreference() {
-        _uiState.update { it.copy(showControllerStyleDialog = false) }
-    }
-
-    private fun getCurrentControllerStyles(): List<CheckboxPreferenceUiModel> {
-        val disabled = prefs.disabledControllerStyle
-        return listOf(
-            CheckboxPreferenceUiModel(Xbox.id, R.string.xbox, disabled != Xbox.id),
-            CheckboxPreferenceUiModel(Odin.id, R.string.odin, disabled != Odin.id),
-            CheckboxPreferenceUiModel(Disconnect.id, R.string.disconnect, disabled != Disconnect.id)
-        )
-    }
-
-    fun updateControllerStyles(models: List<CheckboxPreferenceUiModel>) {
-        prefs.disabledControllerStyle = models.find { it.checked.not() }?.key
-    }
-
-    fun showL2r2StylePreference() {
-        _l2r2StyleOptions = getCurrentL2r2Styles().toMutableStateList()
-        _uiState.update { it.copy(showL2r2StyleDialog = true) }
-    }
-
-    fun hideL2r2StylePreference() {
-        _uiState.update { it.copy(showL2r2StyleDialog = false) }
-    }
-
-    private fun getCurrentL2r2Styles(): List<CheckboxPreferenceUiModel> {
-        val disabled = prefs.disabledL2r2Style
-        return listOf(
-            CheckboxPreferenceUiModel(Analog.id, R.string.analog, disabled != Analog.id),
-            CheckboxPreferenceUiModel(Digital.id, R.string.digital, disabled != Digital.id),
-            CheckboxPreferenceUiModel(Both.id, R.string.both, disabled != Both.id)
-        )
-    }
-
-    fun updateL2r2Styles(models: List<CheckboxPreferenceUiModel>) {
-        prefs.disabledL2r2Style = models.find { it.checked.not() }?.key
-    }
-
-    fun updateVibrationPreference(newValue: Boolean) {
-        settings.vibrationEnabled = newValue
-        _uiState.update { it.copy(vibrationEnabled = newValue) }
-    }
-
-    fun remapButtonClicked(setting: String) {
-        _uiState.update { it.copy(showRemapButtonDialog = true, currentButtonSetting = setting, currentButtonKeyCode = executor.getIntSystemSetting(setting, 0)) }
-    }
-
-    fun remapButtonDialogDismissed() {
-        _uiState.update { it.copy(showRemapButtonDialog = false) }
-    }
-
-    fun saveButtonKeyCode(setting: String, newValue: Int) {
-        executor.setIntSystemSetting(setting, newValue)
-        _uiState.update { it.copy(showRemapButtonDialog = false) }
-    }
-
-    fun appOverridesEnabled(newValue: Boolean) {
-        prefs.appOverridesEnabled = newValue
-        _uiState.update { it.copy(appOverridesEnabled = newValue) }
-    }
+    fun updateThemeIndex(newIndex: Int) { prefs.selectedThemeIndex = newIndex; _uiState.update { it.copy(selectedThemeIndex = newIndex) } }
+    fun updateAmoledBlack(enabled: Boolean) { prefs.useAmoledBlack = enabled; _uiState.update { it.copy(useAmoledBlack = enabled) } }
+    fun finishWelcomeSetup() { prefs.isFirstRun = false }
+    fun isFirstRun(): Boolean = prefs.isFirstRun
+    fun toggleOverlay(enabled: Boolean) { prefs.overlayEnabled = enabled; _uiState.update { it.copy(overlayEnabled = enabled) }; val intent = Intent(context, GamingOverlayService::class.java); if (enabled) context.startService(intent) else context.stopService(intent) }
+    fun updateHandleOpacity(opacity: Float) { prefs.overlayHandleOpacity = opacity; _uiState.update { it.copy(overlayHandleOpacity = opacity) } }
+    fun updateHandleWidth(width: Int) { prefs.overlayHandleWidth = width; _uiState.update { it.copy(overlayHandleWidth = width) } }
+    fun toggleFpsOverlay(enabled: Boolean) { prefs.showFpsOverlay = enabled; _uiState.update { it.copy(showFpsOverlay = enabled) } }
+    fun updateGlobalLsfg(enabled: Boolean) { prefs.globalLsfgEnabled = enabled; _uiState.update { it.copy(globalLsfgEnabled = enabled) }; VulkanNativeBridge.applyLsfg(enabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing) }
+    fun updateLsfgOptions(multiplier: String, pacing: Boolean) { prefs.lsfgMultiplier = multiplier; prefs.lsfgFramePacing = pacing; _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing) }; VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing) }
+    fun updateGlobalSgsr(enabled: Boolean) { prefs.globalSgsrEnabled = enabled; _uiState.update { it.copy(globalSgsrEnabled = enabled) }; VulkanNativeBridge.applySgsr(enabled, prefs.sgsrMode) }
+    fun updateSgsrOptions(mode: String, sharpness: Float) { prefs.sgsrMode = mode; prefs.sgsrSharpness = sharpness; _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }; VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode) }
+    fun refreshDllStatus() { _uiState.update { it.copy(isDllImported = losslessManager.isDllImported) } }
+    fun saveSaturation(newValue: Float) { prefs.saturationOverride = newValue; displayManager.applySaturation(newValue); _uiState.update { it.copy(currentSaturation = newValue) } }
+    fun saveTemperature(newValue: Float) { prefs.temperatureOverride = newValue; displayManager.applyTemperature(newValue); _uiState.update { it.copy(currentTemperature = newValue) } }
+    fun resetDisplayColors() { saveSaturation(1.0f); saveTemperature(6500f) }
+    fun incompatibleDeviceDialogDismissed() { _uiState.update { it.copy(showIncompatibleDeviceDialog = false) } }
+    fun updateSinglePressHomePreference(newValue: Boolean) { settings.preventPressHome = !newValue; _uiState.update { it.copy(singlePressHomeEnabled = newValue) } }
+    fun showControllerStylePreference() { _controllerStyleOptions = getCurrentControllerStyles().toMutableStateList(); _uiState.update { it.copy(showControllerStyleDialog = true) } }
+    fun hideControllerStylePreference() { _uiState.update { it.copy(showControllerStyleDialog = false) } }
+    private fun getCurrentControllerStyles(): List<CheckboxPreferenceUiModel> { val disabled = prefs.disabledControllerStyle; return listOf(CheckboxPreferenceUiModel(Xbox.id, R.string.xbox, disabled != Xbox.id), CheckboxPreferenceUiModel(Odin.id, R.string.odin, disabled != Odin.id), CheckboxPreferenceUiModel(Disconnect.id, R.string.disconnect, disabled != Disconnect.id)) }
+    fun updateControllerStyles(models: List<CheckboxPreferenceUiModel>) { prefs.disabledControllerStyle = models.find { it.checked.not() }?.key }
+    fun showL2r2StylePreference() { _l2r2StyleOptions = getCurrentL2r2Styles().toMutableStateList(); _uiState.update { it.copy(showL2r2StyleDialog = true) } }
+    fun hideL2r2StylePreference() { _uiState.update { it.copy(showL2r2StyleDialog = false) } }
+    private fun getCurrentL2r2Styles(): List<CheckboxPreferenceUiModel> { val disabled = prefs.disabledL2r2Style; return listOf(CheckboxPreferenceUiModel(Analog.id, R.string.analog, disabled != Analog.id), CheckboxPreferenceUiModel(Digital.id, R.string.digital, disabled != Digital.id), CheckboxPreferenceUiModel(Both.id, R.string.both, disabled != Both.id)) }
+    fun updateL2r2Styles(models: List<CheckboxPreferenceUiModel>) { prefs.disabledL2r2Style = models.find { it.checked.not() }?.key }
+    fun updateVibrationPreference(newValue: Boolean) { settings.vibrationEnabled = newValue; _uiState.update { it.copy(vibrationEnabled = newValue) } }
+    fun remapButtonClicked(setting: String) { _uiState.update { it.copy(showRemapButtonDialog = true, currentButtonSetting = setting, currentButtonKeyCode = executor.getIntSystemSetting(setting, 0)) } }
+    fun remapButtonDialogDismissed() { _uiState.update { it.copy(showRemapButtonDialog = false) } }
+    fun saveButtonKeyCode(setting: String, newValue: Int) { executor.setIntSystemSetting(setting, newValue); _uiState.update { it.copy(showRemapButtonDialog = false) } }
+    fun appOverridesEnabled(newValue: Boolean) { prefs.appOverridesEnabled = newValue; _uiState.update { it.copy(appOverridesEnabled = newValue) } }
 }

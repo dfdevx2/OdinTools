@@ -6,6 +6,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class CustomProfile(val name: String, val type: String, val v1: Float, val v2: Float, val v3: Float, val v4: Float)
+
 @Singleton
 class SharedPrefsRepo @Inject constructor(
     @ApplicationContext context: Context
@@ -36,10 +38,6 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getInt(KEY_OVERLAY_HANDLE_WIDTH, 22)
         set(value) = prefs.edit().putInt(KEY_OVERLAY_HANDLE_WIDTH, value).apply()
 
-    var overlayHandlePosY: Int
-        get() = prefs.getInt(KEY_OVERLAY_HANDLE_POS_Y, 0)
-        set(value) = prefs.edit().putInt(KEY_OVERLAY_HANDLE_POS_Y, value).apply()
-
     var disabledControllerStyle: String?
         get() = prefs.getString(KEY_DISABLED_CONTROLLER_STYLE, null)
         set(value) = prefs.edit().putString(KEY_DISABLED_CONTROLLER_STYLE, value).apply()
@@ -56,41 +54,17 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getFloat(KEY_TEMPERATURE_OVERRIDE, 6500f)
         set(value) = prefs.edit().putFloat(KEY_TEMPERATURE_OVERRIDE, value).apply()
 
-    var vibrationStrength: Int
-        get() = prefs.getInt(KEY_VIBRATION_STRENGTH, 50)
-        set(value) = prefs.edit().putInt(KEY_VIBRATION_STRENGTH, value).apply()
-
     var appOverridesEnabled: Boolean
         get() = prefs.getBoolean(KEY_APP_OVERRIDES_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_APP_OVERRIDES_ENABLED, value).apply()
 
-    var overrideDelay: Boolean
-        get() = prefs.getBoolean(KEY_OVERRIDE_DELAY, false)
-        set(value) = prefs.edit().putBoolean(KEY_OVERRIDE_DELAY, value).apply()
+    var useRootTarget: Boolean
+        get() = prefs.getBoolean(KEY_USE_ROOT_TARGET, false)
+        set(value) = prefs.edit().putBoolean(KEY_USE_ROOT_TARGET, value).apply()
 
-    var chargeLimitEnabled: Boolean
-        get() = prefs.getBoolean(KEY_CHARGE_LIMIT_ENABLED, false)
-        set(value) = prefs.edit().putBoolean(KEY_CHARGE_LIMIT_ENABLED, value).apply()
-
-    var minBatteryLevel: Int
-        get() = prefs.getInt(KEY_MIN_BATTERY_LEVEL, 75)
-        set(value) = prefs.edit().putInt(KEY_MIN_BATTERY_LEVEL, value).apply()
-
-    var maxBatteryLevel: Int
-        get() = prefs.getInt(KEY_MAX_BATTERY_LEVEL, 85)
-        set(value) = prefs.edit().putInt(KEY_MAX_BATTERY_LEVEL, value).apply()
-
-    var videoOutputOverrideEnabled: Boolean
-        get() = prefs.getBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, false)
-        set(value) = prefs.edit().putBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, value).apply()
-
-    var videoOutputControllerStyle: String?
-        get() = prefs.getString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, null)
-        set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, value).apply()
-
-    var videoOutputL2R2Style: String?
-        get() = prefs.getString(KEY_VIDEO_OUTPUT_L2R2_STYLE, null)
-        set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
+    var fanMode: Int
+        get() = prefs.getInt(KEY_FAN_MODE, 0)
+        set(value) = prefs.edit().putInt(KEY_FAN_MODE, value).apply()
 
     var globalLsfgEnabled: Boolean
         get() = prefs.getBoolean(KEY_GLOBAL_LSFG_ENABLED, false)
@@ -136,10 +110,7 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getString(KEY_CURRENT_FG_APP, "global") ?: "global"
         set(value) = prefs.edit().putString(KEY_CURRENT_FG_APP, value).apply()
 
-    var useRootTarget: Boolean
-        get() = prefs.getBoolean(KEY_USE_ROOT_TARGET, false)
-        set(value) = prefs.edit().putBoolean(KEY_USE_ROOT_TARGET, value).apply()
-
+    // --- PER-APP OVERRIDES LOGIC ---
     fun savePerAppConfig(packageName: String, tdp: Float, perfClock: Float, primeClock: Float, gpuClock: Float, reshade: String, sgsr: Boolean, sgsrMode: String, lsfg: Boolean) {
         prefs.edit()
             .putFloat("override_${packageName}_tdp", tdp)
@@ -159,6 +130,7 @@ class SharedPrefsRepo @Inject constructor(
     fun getPerAppGpuClock(packageName: String, default: Float): Float = prefs.getFloat("override_${packageName}_gpu", default)
     fun getPerAppReshade(packageName: String, default: String): String = prefs.getString("override_${packageName}_reshade", default) ?: default
 
+    // --- CUSTOM PROFILES LOGIC ---
     fun saveCustomProfile(name: String, type: String, val1: Float, val2: Float, val3: Float, val4: Float) {
         prefs.edit()
             .putString("custom_profile_${name}_type", type)
@@ -167,6 +139,20 @@ class SharedPrefsRepo @Inject constructor(
             .putFloat("custom_profile_${name}_v3", val3)
             .putFloat("custom_profile_${name}_v4", val4)
             .apply()
+    }
+
+    fun getAllCustomProfiles(): List<CustomProfile> {
+        val profiles = mutableListOf<CustomProfile>()
+        prefs.all.keys.filter { it.startsWith("custom_profile_") && it.endsWith("_type") }.forEach { key ->
+            val name = key.replace("custom_profile_", "").replace("_type", "")
+            val type = prefs.getString(key, "TDP") ?: "TDP"
+            val v1 = prefs.getFloat("custom_profile_${name}_v1", 0f)
+            val v2 = prefs.getFloat("custom_profile_${name}_v2", 0f)
+            val v3 = prefs.getFloat("custom_profile_${name}_v3", 0f)
+            val v4 = prefs.getFloat("custom_profile_${name}_v4", 0f)
+            profiles.add(CustomProfile(name, type, v1, v2, v3, v4))
+        }
+        return profiles
     }
 
     companion object {
@@ -202,5 +188,6 @@ class SharedPrefsRepo @Inject constructor(
         private const val KEY_FPS_OVERLAY = "fps_overlay"
         private const val KEY_CURRENT_FG_APP = "current_foreground_app"
         private const val KEY_USE_ROOT_TARGET = "use_root_target"
+        private const val KEY_FAN_MODE = "fan_mode"
     }
 }
