@@ -2,102 +2,85 @@ package de.langerhans.odintools.appsettings
 
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import de.langerhans.odintools.R
-import de.langerhans.odintools.ui.composables.OdinTopAppBar
 
 @Composable
 fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(), navigateToOverrides: (packageName: String) -> Unit) {
-    val uiState: AppOverrideListUiModel by viewModel.uiState.collectAsState()
-    Scaffold(topBar = { OdinTopAppBar(deviceVersion = uiState.deviceVersion) }) { contentPadding ->
+    val uiState by viewModel.uiState.collectAsState()
 
-        if (uiState.showAppSelectDialog) {
-            AppPickerDialog(
-                uiState.overrideCandidates,
-                {
-                    viewModel.dismissAppSelectDialog()
-                    navigateToOverrides(it)
-                },
-                {
-                    viewModel.dismissAppSelectDialog()
-                },
-            )
-        }
+    if (uiState.showAppSelectDialog) {
+        AppPickerDialog(
+            apps = uiState.overrideCandidates,
+            onAppSelected = {
+                viewModel.dismissAppSelectDialog()
+                navigateToOverrides(it)
+            },
+            onDismiss = { viewModel.dismissAppSelectDialog() }
+        )
+    }
 
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0F1115))) {
         LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(
-                top = contentPadding.calculateTopPadding(),
-                bottom = contentPadding.calculateBottomPadding(),
-            ),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).windowInsetsPadding(WindowInsets.systemBars),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.addClicked() }
-                        .padding(vertical = 12.dp, horizontal = 16.dp),
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "JOGOS COM REGRAS ATIVAS",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1976D2).copy(alpha = 0.8f)),
+                    modifier = Modifier.fillMaxWidth().clickable { viewModel.addClicked() }
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_add),
-                        contentDescription = null,
-                        colorFilter = ColorFilter.tint(LocalContentColor.current),
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Text(
-                        text = stringResource(id = R.string.addOverride),
-                        modifier = Modifier.padding(start = 16.dp),
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(painterResource(id = R.drawable.ic_add), contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                        Text("Adicionar Novo Jogo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(start = 16.dp))
+                    }
                 }
             }
-            items(items = uiState.overrideList, itemContent = {
-                AppItem(
-                    it.packageName,
-                    it.appName,
-                    it.appIcon,
-                    48.dp,
-                    it.subtitle,
-                ) { packageName ->
-                    navigateToOverrides(packageName)
+
+            items(uiState.overrideList) { app ->
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).clickable { navigateToOverrides(app.packageName) }
+                ) {
+                    AppItem(app.packageName, app.appName, app.appIcon, 48.dp, app.subtitle) {}
                 }
-            })
+            }
         }
     }
 }
@@ -106,19 +89,14 @@ fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(),
 fun AppItem(packageName: String, label: String, icon: Drawable, iconSize: Dp = 48.dp, subLabel: String? = "", onClick: (String) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick(packageName) }
-            .padding(vertical = 12.dp, horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().padding(16.dp)
     ) {
         Image(painter = rememberDrawablePainter(drawable = icon), contentDescription = null, Modifier.size(iconSize))
         Column(modifier = Modifier.padding(start = 16.dp)) {
-            Text(text = label, modifier = Modifier.padding(bottom = 4.dp))
-            if (subLabel?.isNotEmpty() == true) {
-                Text(
-                    text = subLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            Text(text = label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            if (!subLabel.isNullOrEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = subLabel, color = Color.Gray, fontSize = 12.sp)
             }
         }
     }
@@ -128,69 +106,42 @@ fun AppItem(packageName: String, label: String, icon: Drawable, iconSize: Dp = 4
 fun AppPickerDialog(apps: List<AppUiModel>, onAppSelected: (String) -> Unit, onDismiss: () -> Unit) {
     var searchText by rememberSaveable { mutableStateOf("") }
     val filteredApps = apps.filter {
-        it.appName.contains(searchText, ignoreCase = true)
-    }.ifEmpty {
-        apps.filter { it.packageName.contains(searchText, ignoreCase = true) }
+        it.appName.contains(searchText, ignoreCase = true) || it.packageName.contains(searchText, ignoreCase = true)
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {},
+        containerColor = Color(0xFF1A1D24),
+        title = { Text("Selecione um Jogo", color = Color.White) },
         text = {
-            val focusManager = LocalFocusManager.current
-            if (apps.isEmpty()) {
-                Text(text = stringResource(id = R.string.noOverrideCandidates))
-                return@AlertDialog
-            }
             Column {
                 OutlinedTextField(
                     value = searchText,
-                    onValueChange = {
-                        searchText = it
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text(text = stringResource(id = R.string.searchApp))
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        imeAction = ImeAction.Search,
-                        keyboardType = KeyboardType.Text,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onAny = {
-                            searchText = searchText.trim()
-                            focusManager.clearFocus()
-                        },
-                    ),
+                    onValueChange = { searchText = it },
+                    placeholder = { Text("Procurar...", color = Color.Gray) },
                     singleLine = true,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                if (filteredApps.isEmpty()) {
-                    Text(
-                        text = stringResource(id = R.string.noMatches),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
                     )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        items(
-                            items = filteredApps,
-                            itemContent = {
-                                AppItem(
-                                    it.packageName,
-                                    it.appName,
-                                    it.appIcon,
-                                    36.dp,
-                                    "",
-                                    onAppSelected,
-                                )
-                            },
-                        )
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    items(filteredApps) { app ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { onAppSelected(app.packageName) }.padding(vertical = 8.dp)
+                        ) {
+                            Image(painter = rememberDrawablePainter(drawable = app.appIcon), contentDescription = null, Modifier.size(36.dp))
+                            Text(app.appName, color = Color.LightGray, modifier = Modifier.padding(start = 12.dp))
+                        }
                     }
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = {},
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.Gray) }
+        }
     )
 }
