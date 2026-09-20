@@ -71,7 +71,8 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     var currentLanguage by remember { mutableStateOf("Português (PT-BR)") }
     val isEn = currentLanguage == "English (US)"
 
-    val rawTheme = AvailableThemes[currentThemeIndex]
+    // Correção: Usa o primeiro tema da lista como fallback seguro em vez de DefaultTheme
+    val rawTheme = AvailableThemes.getOrElse(currentThemeIndex) { AvailableThemes[0] }
     val finalTheme = getResolvedTheme(rawTheme, useAmoledBlack)
 
     var bgmEnabled by remember { mutableStateOf(true) }
@@ -93,49 +94,62 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     var selectedWallpaperName by remember { mutableStateOf(if (isEn) "Preset 1" else "Predefinição 1") }
 
     val haptic = LocalHapticFeedback.current
-    val bgmPlayer = remember { MediaPlayer.create(context, R.raw.bgm_1).apply { isLooping = true } }
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    // Helper seguro para tocar efeitos sonoros
     fun playSfx(resId: Int) {
         if (sfxEnabled) {
-            MediaPlayer.create(context, resId)?.apply {
-                setVolume(sfxVolume, sfxVolume)
-                setOnCompletionListener { release() }
-                start()
+            runCatching {
+                MediaPlayer.create(context, resId)?.apply {
+                    setVolume(sfxVolume, sfxVolume)
+                    setOnCompletionListener { release() }
+                    start()
+                }
             }
         }
     }
 
-    LaunchedEffect(bgmVolume) { bgmPlayer.setVolume(bgmVolume, bgmVolume) }
+    val bgmPlayer = remember {
+        runCatching { MediaPlayer.create(context, R.raw.bgm_1)?.apply { isLooping = true } }.getOrNull()
+    }
+
+    LaunchedEffect(bgmVolume) {
+        bgmPlayer?.setVolume(bgmVolume, bgmVolume)
+    }
 
     LaunchedEffect(bgmEnabled, showWelcomeSetup, showBootAnimation) {
-        if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) {
-            if (!bgmPlayer.isPlaying) bgmPlayer.start()
-        } else {
-            if (bgmPlayer.isPlaying) bgmPlayer.pause()
+        if (bgmPlayer != null) {
+            if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) {
+                if (!bgmPlayer.isPlaying) bgmPlayer.start()
+            } else {
+                if (bgmPlayer.isPlaying) bgmPlayer.pause()
+            }
         }
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
-                if (bgmPlayer.isPlaying) bgmPlayer.pause()
-            } else if (event == Lifecycle.Event.ON_RESUME) {
-                if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) bgmPlayer.start()
+            if (bgmPlayer != null) {
+                if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                    if (bgmPlayer.isPlaying) bgmPlayer.pause()
+                } else if (event == Lifecycle.Event.ON_RESUME) {
+                    if (bgmEnabled && !showWelcomeSetup && !showBootAnimation) bgmPlayer.start()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    DisposableEffect(Unit) { onDispose { bgmPlayer.release() } }
+    DisposableEffect(Unit) {
+        onDispose { bgmPlayer?.release() }
+    }
 
-    // Modal de Salvar Perfil de Usuário
     if (uiState.showSaveProfileDialog) {
         var profileName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { viewModel.dismissSaveProfileDialog() },
-            title = { Text(if (isEn) "Save Custom Profile" else "Salvar Perfil Personalizado", fontFamily = finalTheme.fontFamily) },
+            title = { Text(if (isEn) "Save Custom Profile" else "Salvar Perfil de TDP Personalizado", fontFamily = finalTheme.fontFamily) },
             text = {
                 OutlinedTextField(
                     value = profileName,
@@ -459,13 +473,32 @@ fun ConsoleTabItem(index: Int, title: String, iconResId: Int, selectedTab: Int, 
 
 @Composable
 fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleTheme, isEn: Boolean, navigateToOverrideList: () -> Unit, playClick: () -> Unit) {
-    var expandedProfile by remember { mutableStateOf(false) }
+    // Chave Mestra de Bloqueio (TDP ou CLOCK)
+    var activeLimitMode by remember { mutableStateOf("TDP") }
 
-    val baseProfiles = listOf("Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock")
-    val allProfiles = baseProfiles + uiState.savedCustomProfiles + if (uiState.performanceProfile == "Personalizado") listOf("Personalizado") else emptyList()
+    var expandedTdpProfile by remember { mutableStateOf(false) }
+    var expandedClockProfile by remember { mutableStateOf(false) }
+    var expandedFanProfile by remember { mutableStateOf(false) }
+
+    var selectedClockProfileName by remember { mutableStateOf("Stock (Padrão AYN)") }
+    var selectedFanProfileName by remember { mutableStateOf("Smart (Balanceado)") }
+
+    var showClockSaveDialog by remember { mutableStateOf(false) }
+    var customClockNameInput by remember { mutableStateOf("") }
+
+    val fanProfiles = listOf("Silent (Silencioso)", "Smart (Balanceado)", "Sport (Desempenho Máximo)", "Stock (Padrão)")
+    val clockPresets = listOf("Power Save (Underclock Seguro)", "Balanced (Intermediário)", "Triple A (Alto Desempenho)", "Stock (Padrão AYN)")
+    val tdpPresets = listOf("Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock (Padrão AYN)")
+
+    val allTdpProfiles = tdpPresets + uiState.savedCustomProfiles
+    var savedCustomClockProfiles by remember { mutableStateOf(listOf<String>()) }
+
+    val isTdpMode = activeLimitMode == "TDP"
+    val isClockMode = activeLimitMode == "CLOCK"
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
+        // --- 1. MOTOR E KSU ---
         ConsoleSectionHeader(if (isEn) "Engine & Optimization" else "Motor e Otimização", theme)
         ConsoleCard(if (isEn) "KSU Module Integration" else "Módulo KSU", if (isEn) "Toggle if Odin Hub KSU module is installed" else "Ative se instalou o Módulo KSU (Remove overhead)", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -474,29 +507,98 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        ConsoleSectionHeader(if (isEn) "Intelligent AutoTDP" else "AutoTDP Inteligente", theme)
+        // --- 2. CONTROLE DE VENTOINHA (FAN) ---
+        ConsoleSectionHeader(if (isEn) "Cooling & Fan Control" else "Controle de Ventoinha (Cooler)", theme)
+        ConsoleCard(if (isEn) "Fan Speed Profiles" else "Perfis de Ventoinha", selectedFanProfileName, theme, { expandedFanProfile = true; playClick() }) {
+            DropdownMenu(expanded = expandedFanProfile, onDismissRequest = { expandedFanProfile = false }, modifier = Modifier.background(theme.surface)) {
+                fanProfiles.forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
+                        onClick = {
+                            selectedFanProfileName = profile
+                            expandedFanProfile = false
+                            playClick()
+                        }
+                    )
+                }
+            }
+        }
+
+        // --- SELETOR DE MODO DE LIMITAÇÃO ---
+        ConsoleSectionHeader(if (isEn) "Hardware Limitation Mode" else "Modo de Limitação de Hardware", theme)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.3f))
+                .border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent)
+                    .clickable {
+                        activeLimitMode = "TDP"
+                        // Reset de Segurança: Volta os clocks para o padrão máximo da máquina
+                        viewModel.updateManualClocks(3530f, 4320f, 1100f)
+                        playClick()
+                    }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(if (isEn) "Lock by TDP" else "Limitar por TDP", color = if (isTdpMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isClockMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent)
+                    .clickable {
+                        activeLimitMode = "CLOCK"
+                        // Reset de Segurança: Desativa o limite de TDP
+                        viewModel.updatePerformanceProfile("Stock")
+                        playClick()
+                    }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(if (isEn) "Lock by Clocks" else "Limitar por Clocks", color = if (isClockMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
+            }
+        }
+
+        // --- 3. AUTOTDP E PERFIS DE TDP ---
         ConsoleCard(
             title = if (isEn) "Dynamic AutoTDP Control" else "Controle Dinâmico AutoTDP",
-            subtitle = if (isEn) "Monitors FPS and automatically trims CPU/GPU clocks to hold your target framerate with minimal battery drain.\nPT: Monitora os quadros por segundo (FPS) e ajusta os clocks automaticamente para manter a fluidez com menor consumo de bateria." else "Monitora os quadros por segundo (FPS) e ajusta automaticamente os clocks para manter a fluidez com menor consumo de bateria.\nEN: Monitors FPS and trims clocks to hold framerate with minimal battery drain.",
+            subtitle = if (isEn) "Monitors FPS and automatically trims TDP. Disabled when Clock Mode is active." else "Monitora o FPS e ajusta o TDP dinamicamente. Fica desativado se o Modo Clock estiver ativo.",
             theme = theme,
-            playClick = playClick
+            playClick = { if (isTdpMode) playClick() },
+            enabled = isTdpMode
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(if (isEn) "Limit: ${uiState.tdpValue.toInt()} W" else "Limite: ${uiState.tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
+                Text(if (isEn) "Limit: ${uiState.tdpValue.toInt()} W" else "Limite de TDP: ${uiState.tdpValue.toInt()} W", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(
                     value = uiState.tdpValue,
                     onValueChange = { viewModel.updateTdp(it) },
                     valueRange = 5f..25f,
                     steps = 20,
+                    enabled = isTdpMode,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
             }
         }
 
-        ConsoleSectionHeader(if (isEn) "Energy & TDP Profiles" else "Perfis de TDP (Potência Energética)", theme)
-        ConsoleCard(if (isEn) "Performance Profile" else "Perfil de Performance", uiState.performanceProfile, theme, { expandedProfile = true; playClick() }) {
-            DropdownMenu(expanded = expandedProfile, onDismissRequest = { expandedProfile = false }, modifier = Modifier.background(theme.surface)) {
-                allProfiles.distinct().forEach { profile ->
+        ConsoleCard(
+            title = if (isEn) "TDP Preset Selection" else "Seleção de Perfil de TDP",
+            subtitle = uiState.performanceProfile,
+            theme = theme,
+            playClick = { if (isTdpMode) { expandedTdpProfile = true; playClick() } },
+            enabled = isTdpMode
+        ) {
+            DropdownMenu(expanded = expandedTdpProfile && isTdpMode, onDismissRequest = { expandedTdpProfile = false }, modifier = Modifier.background(theme.surface)) {
+                allTdpProfiles.distinct().forEach { profile ->
                     DropdownMenuItem(
                         text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
                         onClick = {
@@ -504,7 +606,7 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                             if (profile.contains("5W")) viewModel.updateTdp(5f)
                             else if (profile.contains("11W")) viewModel.updateTdp(11f)
                             else if (profile.contains("14.5W")) viewModel.updateTdp(14.5f)
-                            expandedProfile = false
+                            expandedTdpProfile = false
                             playClick()
                         }
                     )
@@ -512,22 +614,68 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
 
             Button(
-                onClick = { viewModel.showSaveProfileDialog(); playClick() },
+                onClick = { if (isTdpMode) { viewModel.showSaveProfileDialog(); playClick() } },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
+                enabled = isTdpMode,
                 colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
             ) {
                 Text(if (isEn) "Save Current TDP as Custom Profile..." else "Salvar TDP Atual como Perfil Personalizado...", fontFamily = theme.fontFamily, color = Color.White)
             }
         }
 
-        ConsoleSectionHeader(if (isEn) "Hardware Limits & Underclock (Snapdragon 8 Elite)" else "Limites de Hardware e Underclock (Snapdragon 8 Elite)", theme)
-        ConsoleCard(if (isEn) "Absolute Manual Clocks" else "Travamento Manual (Clocks)", if (isEn) "Individual safe limits per cluster" else "Limites individuais seguros por arquitetura", theme, playClick) {
+        // --- 4. TRAVAMENTO MANUAL DE CLOCKS E PERFIS DE UNDERCLOCK ---
+        ConsoleCard(
+            title = if (isEn) "Clock Profile Presets" else "Perfis de Frequência / Underclock",
+            subtitle = selectedClockProfileName,
+            theme = theme,
+            playClick = { if (isClockMode) { expandedClockProfile = true; playClick() } },
+            enabled = isClockMode
+        ) {
+            DropdownMenu(expanded = expandedClockProfile && isClockMode, onDismissRequest = { expandedClockProfile = false }, modifier = Modifier.background(theme.surface)) {
+                (clockPresets + savedCustomClockProfiles).distinct().forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(profile, color = theme.text, fontFamily = theme.fontFamily) },
+                        onClick = {
+                            selectedClockProfileName = profile
+                            if (profile.contains("Power Save")) {
+                                viewModel.updateManualClocks(2000f, 2400f, 500f)
+                            } else if (profile.contains("Balanced")) {
+                                viewModel.updateManualClocks(2800f, 3400f, 750f)
+                            } else if (profile.contains("Triple A")) {
+                                viewModel.updateManualClocks(3530f, 4320f, 1100f)
+                            }
+                            expandedClockProfile = false
+                            playClick()
+                        }
+                    )
+                }
+            }
+
+            Button(
+                onClick = { if (isClockMode) { showClockSaveDialog = true; playClick() } },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
+                enabled = isClockMode,
+                colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+            ) {
+                Text(if (isEn) "Save Current Clocks as Custom Profile..." else "Salvar Clocks Atuais como Perfil...", fontFamily = theme.fontFamily, color = Color.White)
+            }
+        }
+
+        ConsoleCard(
+            title = if (isEn) "Discrete Manual Clocks Slider" else "Sliding de Frequência por Cluster",
+            subtitle = if (isEn) "Individual precise steps per architecture" else "Passos discretos otimizados por arquitetura",
+            theme = theme,
+            playClick = { if (isClockMode) playClick() },
+            enabled = isClockMode
+        ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(if (isEn) "Perf Cores (6x): ${uiState.cpuPerfClock.toInt()} MHz" else "Núcleos de Performance (6x): ${uiState.cpuPerfClock.toInt()} MHz", color = theme.text, fontFamily = theme.fontFamily)
                 Slider(
                     value = uiState.cpuPerfClock,
                     onValueChange = { viewModel.updateManualClocks(it, uiState.cpuPrimeClock, uiState.gpuClock) },
                     valueRange = 1735f..3530f,
+                    steps = 15,
+                    enabled = isClockMode,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
 
@@ -538,6 +686,8 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                     value = uiState.cpuPrimeClock,
                     onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, it, uiState.gpuClock) },
                     valueRange = 2246f..4320f,
+                    steps = 15,
+                    enabled = isClockMode,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
 
@@ -548,19 +698,58 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                     value = uiState.gpuClock,
                     onValueChange = { viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, it) },
                     valueRange = 160f..1100f,
+                    steps = 18,
+                    enabled = isClockMode,
                     colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
                 )
             }
         }
 
-        ConsoleSectionHeader(if (isEn) "Game Rules" else "Regras de Jogo", theme)
-        ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific rules" else "Configurar regras específicas", theme, playClick) {
+        // --- 5. OVERRIDES POR JOGO ---
+        ConsoleSectionHeader(if (isEn) "Game Rules & Per-App Overrides" else "Regras por Jogo e Aplicativo", theme)
+        ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific TDP & clock rules for emulators" else "Vincule perfis de TDP, Clocks e Fan a emuladores específicos", theme, playClick) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isEn) "Enable Overrides" else "Habilitar Overrides", color = theme.text, fontFamily = theme.fontFamily)
+                Text(if (isEn) "Enable Overrides" else "Habilitar Overrides por App", color = theme.text, fontFamily = theme.fontFamily)
                 ConsoleToggle(checked = uiState.appOverridesEnabled, theme = theme, onCheckedChange = { viewModel.appOverridesEnabled(it); playClick() })
             }
             TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.appOverrides, description = R.string.appOverridesDescription) { playClick(); navigateToOverrideList() }
         }
+    }
+
+    if (showClockSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showClockSaveDialog = false },
+            title = { Text(if (isEn) "Save Custom Clock Profile" else "Salvar Perfil de Clock Personalizado", fontFamily = theme.fontFamily) },
+            text = {
+                OutlinedTextField(
+                    value = customClockNameInput,
+                    onValueChange = { customClockNameInput = it },
+                    label = { Text(if (isEn) "Profile Name (e.g. PS2 Heavy)" else "Nome do Perfil (Ex: PS2 Pesado)", fontFamily = theme.fontFamily) },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (customClockNameInput.isNotBlank()) {
+                        savedCustomClockProfiles = savedCustomClockProfiles + customClockNameInput
+                        selectedClockProfileName = customClockNameInput
+                        customClockNameInput = ""
+                        showClockSaveDialog = false
+                        playClick()
+                    }
+                }) {
+                    Text(if (isEn) "Save" else "Salvar", color = theme.primary, fontFamily = theme.fontFamily)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClockSaveDialog = false }) {
+                    Text(if (isEn) "Cancel" else "Cancelar", color = theme.text, fontFamily = theme.fontFamily)
+                }
+            },
+            containerColor = theme.surface,
+            titleContentColor = theme.text,
+            textContentColor = theme.text
+        )
     }
 }
 
@@ -742,18 +931,22 @@ fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
 }
 
 @Composable
-fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick: () -> Unit = {}, enabled: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val haptic = LocalHapticFeedback.current
+
     LaunchedEffect(isFocused) {
-        if (isFocused) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (isFocused && enabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
-    val scale by animateFloatAsState(targetValue = if (isFocused) 1.02f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
-    val glow by animateDpAsState(targetValue = if (isFocused) 16.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
-    val glassSurface = theme.surface.copy(alpha = 0.4f)
-    val subtleBorder = theme.text.copy(alpha = 0.15f)
-    val borderColor by animateColorAsState(targetValue = if (isFocused) theme.primary else subtleBorder, label = "cardBorder")
+
+    val scale by animateFloatAsState(targetValue = if (isFocused && enabled) 1.02f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
+    val glow by animateDpAsState(targetValue = if (isFocused && enabled) 16.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
+
+    val glassSurface = theme.surface.copy(alpha = if (enabled) 0.4f else 0.1f)
+    val subtleBorder = theme.text.copy(alpha = if (enabled) 0.15f else 0.05f)
+    val borderColor by animateColorAsState(targetValue = if (isFocused && enabled) theme.primary else subtleBorder, label = "cardBorder")
+    val contentAlpha by animateFloatAsState(targetValue = if (enabled) 1f else 0.3f, label = "contentAlpha")
 
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -763,11 +956,19 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, playClick:
             .scale(scale)
             .shadow(glow, RoundedCornerShape(8.dp), spotColor = theme.primary, ambientColor = theme.primary)
             .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-            .focusable(interactionSource = interactionSource)
-            .clickable(interactionSource = interactionSource, indication = null) { playClick() }
+            .alpha(contentAlpha)
+            .then(
+                if (enabled) {
+                    Modifier
+                        .focusable(interactionSource = interactionSource)
+                        .clickable(interactionSource = interactionSource, indication = null) { playClick() }
+                } else {
+                    Modifier
+                }
+            )
     ) {
         Column(modifier = Modifier.padding(vertical = 12.dp)) {
-            Text(title, fontSize = 16.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = if (isFocused) theme.primary else theme.text, modifier = Modifier.padding(horizontal = 16.dp))
+            Text(title, fontSize = 16.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = if (isFocused && enabled) theme.primary else theme.text, modifier = Modifier.padding(horizontal = 16.dp))
             if (subtitle.isNotEmpty()) {
                 Text(subtitle, fontSize = 12.sp, fontFamily = theme.fontFamily, color = theme.text.copy(alpha = 0.6f), modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp))
             } else {
