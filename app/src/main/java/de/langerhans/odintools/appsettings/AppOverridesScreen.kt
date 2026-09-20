@@ -10,7 +10,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,12 +25,17 @@ fun AppOverridesScreen(
     navigateBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val haptic = LocalHapticFeedback.current
 
     var expandedTdp by remember { mutableStateOf(false) }
     var expandedClock by remember { mutableStateOf(false) }
     var expandedFan by remember { mutableStateOf(false) }
 
     val fanProfiles = listOf("Nenhum", "Silent (Silencioso)", "Smart (Balanceado)", "Sport (Desempenho Máximo)", "Stock (Padrão)")
+
+    // LÓGICA DE EXCLUSIVIDADE: Um bloqueia o outro
+    val isClockLocked = uiState.tdpProfile != "Nenhum"
+    val isTdpLocked = uiState.clockProfile != "Nenhum"
 
     Box(
         modifier = Modifier
@@ -41,7 +49,6 @@ fun AppOverridesScreen(
                 .windowInsetsPadding(WindowInsets.systemBars),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Cabeçalho da página de jogo
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -58,7 +65,7 @@ fun AppOverridesScreen(
                         )
                         Text(
                             text = uiState.appName,
-                            color = Color(0xFF1976D2), // Cor do tema primário
+                            color = Color(0xFF1976D2),
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Black,
                             lineHeight = 28.sp
@@ -69,7 +76,7 @@ fun AppOverridesScreen(
                             fontSize = 12.sp
                         )
                     }
-                    TextButton(onClick = navigateBack) {
+                    TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); navigateBack() }) {
                         Text(text = "Voltar", color = Color.LightGray)
                     }
                 }
@@ -77,13 +84,18 @@ fun AppOverridesScreen(
 
             item { Spacer(modifier = Modifier.height(8.dp)) }
 
-            // Bloco de Configuração de TDP
             item {
                 Text("TDP (Potência)", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 4.dp))
                 OverrideGlassCard(
                     title = "Perfil de TDP",
                     subtitle = uiState.tdpProfile,
-                    onClick = { expandedTdp = true }
+                    enabled = !isTdpLocked,
+                    onClick = {
+                        if (!isTdpLocked) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            expandedTdp = true
+                        }
+                    }
                 ) {
                     DropdownMenu(
                         expanded = expandedTdp,
@@ -94,6 +106,7 @@ fun AppOverridesScreen(
                             DropdownMenuItem(
                                 text = { Text(profile, color = Color.White) },
                                 onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.updateTdpProfile(profile)
                                     expandedTdp = false
                                 }
@@ -103,13 +116,18 @@ fun AppOverridesScreen(
                 }
             }
 
-            // Bloco de Configuração de Clocks
             item {
                 Text("Frequências (Underclock)", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
                 OverrideGlassCard(
                     title = "Perfil de Clocks",
                     subtitle = uiState.clockProfile,
-                    onClick = { expandedClock = true }
+                    enabled = !isClockLocked,
+                    onClick = {
+                        if (!isClockLocked) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            expandedClock = true
+                        }
+                    }
                 ) {
                     DropdownMenu(
                         expanded = expandedClock,
@@ -120,6 +138,7 @@ fun AppOverridesScreen(
                             DropdownMenuItem(
                                 text = { Text(profile, color = Color.White) },
                                 onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.updateClockProfile(profile)
                                     expandedClock = false
                                 }
@@ -129,13 +148,16 @@ fun AppOverridesScreen(
                 }
             }
 
-            // Bloco de Configuração da Ventoinha
             item {
                 Text("Resfriamento Ativo", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
                 OverrideGlassCard(
                     title = "Velocidade da Ventoinha",
                     subtitle = uiState.fanProfile,
-                    onClick = { expandedFan = true }
+                    enabled = true,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        expandedFan = true
+                    }
                 ) {
                     DropdownMenu(
                         expanded = expandedFan,
@@ -146,6 +168,7 @@ fun AppOverridesScreen(
                             DropdownMenuItem(
                                 text = { Text(profile, color = Color.White) },
                                 onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.updateFanProfile(profile)
                                     expandedFan = false
                                 }
@@ -155,7 +178,6 @@ fun AppOverridesScreen(
                 }
             }
 
-            // Botões de Ação Final (Salvar / Deletar)
             item {
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(
@@ -165,6 +187,7 @@ fun AppOverridesScreen(
                     if (uiState.isSaved) {
                         Button(
                             onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 viewModel.deleteOverride()
                                 navigateBack()
                             },
@@ -178,6 +201,7 @@ fun AppOverridesScreen(
 
                     Button(
                         onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             viewModel.saveOverride()
                             navigateBack()
                         },
@@ -197,22 +221,25 @@ fun AppOverridesScreen(
 fun OverrideGlassCard(
     title: String,
     subtitle: String,
+    enabled: Boolean,
     onClick: () -> Unit,
     content: @Composable () -> Unit
 ) {
+    val alphaValue = if (enabled) 1f else 0.3f
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
         modifier = Modifier
             .fillMaxWidth()
             .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-            .clickable { onClick() }
+            .alpha(alphaValue)
+            .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(modifier = Modifier.height(4.dp))
             Text(subtitle, fontSize = 14.sp, color = Color.Gray)
-            content() // Esse container armazena os Dropdowns flutuantes
+            content()
         }
     }
 }

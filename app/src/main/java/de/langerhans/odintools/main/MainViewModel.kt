@@ -165,6 +165,11 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun setFanMode(profileName: String) {
+        val fanMode = de.langerhans.odintools.models.FanMode.fromString(profileName)
+        fanMode.enable(executor)
+    }
+
     // ==========================================
     // MÉTODOS ORIGINAIS DO ODINTOOLS
     // ==========================================
