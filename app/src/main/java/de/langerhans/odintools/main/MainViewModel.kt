@@ -80,8 +80,7 @@ class MainViewModel @Inject constructor(
                 overlayEnabled = prefs.overlayEnabled,
                 overlayHandleOpacity = prefs.overlayHandleOpacity,
                 overlayHandleWidth = prefs.overlayHandleWidth,
-                overlayPanelOpacity = prefs.overlayPanelOpacity,
-                overlayPanelBlur = prefs.overlayPanelBlur
+                overlayPanelOpacity = prefs.overlayPanelOpacity
             )
         }
 
@@ -101,7 +100,6 @@ class MainViewModel @Inject constructor(
     }
 
     fun updateOverlayPanelOpacity(opacity: Float) { prefs.overlayPanelOpacity = opacity; _uiState.update { it.copy(overlayPanelOpacity = opacity) } }
-    fun updateOverlayPanelBlur(blur: Float) { prefs.overlayPanelBlur = blur; _uiState.update { it.copy(overlayPanelBlur = blur) } }
     fun updateUseRootTarget(enabled: Boolean) { prefs.useRootTarget = enabled; _uiState.update { it.copy(useRootTarget = enabled) } }
     fun updateFanMode(mode: Int) { prefs.fanMode = mode; _uiState.update { it.copy(fanMode = mode) }; runCatching { executor.setIntSystemSetting("fan_mode", mode) } }
     fun updateLimitMode(mode: String) { _uiState.update { it.copy(activeLimitMode = mode) } }
