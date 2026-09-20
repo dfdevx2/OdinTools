@@ -54,7 +54,7 @@ data class MainUiModel(
     val showSaveProfileDialog: Boolean = false,
     val useRootTarget: Boolean = false,
 
-    // Odin Hub Display States
+    // Odin Hub Display & Upscaling States
     val globalLsfgEnabled: Boolean = false,
     val globalSgsrEnabled: Boolean = false,
     val lsfgMultiplier: String = "2x",
@@ -65,9 +65,11 @@ data class MainUiModel(
     val reshadeProfile: String = "Native",
     val showFpsOverlay: Boolean = false,
 
-    // Odin Hub Overlay & DLL States
+    // Odin Hub Overlay & Handle Customization States
     val isDllImported: Boolean = false,
-    val overlayEnabled: Boolean = false
+    val overlayEnabled: Boolean = false,
+    val overlayHandleOpacity: Float = 0.5f,
+    val overlayHandleWidth: Int = 22
 )
 
 data class CheckboxPreferenceUiModel(

@@ -28,6 +28,7 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getBoolean(KEY_OVERLAY_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_OVERLAY_ENABLED, value).apply()
 
+    // Handle Customization Preferences
     var overlayHandleOpacity: Float
         get() = prefs.getFloat(KEY_OVERLAY_HANDLE_OPACITY, 0.5f)
         set(value) = prefs.edit().putFloat(KEY_OVERLAY_HANDLE_OPACITY, value).apply()
@@ -104,6 +105,14 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getBoolean(KEY_LSFG_PACING, true)
         set(value) = prefs.edit().putBoolean(KEY_LSFG_PACING, value).apply()
 
+    var lsfgPerformanceMode: Boolean
+        get() = prefs.getBoolean(KEY_LSFG_PERFORMANCE_MODE, false)
+        set(value) = prefs.edit().putBoolean(KEY_LSFG_PERFORMANCE_MODE, value).apply()
+
+    var lsfgGeneratedQuality: Float
+        get() = prefs.getFloat(KEY_LSFG_GENERATED_QUALITY, 1.0f)
+        set(value) = prefs.edit().putFloat(KEY_LSFG_GENERATED_QUALITY, value).apply()
+
     var globalSgsrEnabled: Boolean
         get() = prefs.getBoolean(KEY_GLOBAL_SGSR_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_GLOBAL_SGSR_ENABLED, value).apply()
@@ -111,6 +120,10 @@ class SharedPrefsRepo @Inject constructor(
     var sgsrMode: String
         get() = prefs.getString(KEY_SGSR_MODE, "Quality") ?: "Quality"
         set(value) = prefs.edit().putString(KEY_SGSR_MODE, value).apply()
+
+    var sgsrSharpness: Float
+        get() = prefs.getFloat(KEY_SGSR_SHARPNESS, 0.5f)
+        set(value) = prefs.edit().putFloat(KEY_SGSR_SHARPNESS, value).apply()
 
     var reshadeProfile: String
         get() = prefs.getString(KEY_RESHADE_PROFILE, "Native") ?: "Native"
@@ -144,8 +157,11 @@ class SharedPrefsRepo @Inject constructor(
         private const val KEY_GLOBAL_LSFG_ENABLED = "global_lsfg_enabled"
         private const val KEY_LSFG_MULTIPLIER = "lsfg_multiplier"
         private const val KEY_LSFG_PACING = "lsfg_pacing"
+        private const val KEY_LSFG_PERFORMANCE_MODE = "lsfg_performance_mode"
+        private const val KEY_LSFG_GENERATED_QUALITY = "lsfg_generated_quality"
         private const val KEY_GLOBAL_SGSR_ENABLED = "global_sgsr_enabled"
         private const val KEY_SGSR_MODE = "sgsr_mode"
+        private const val KEY_SGSR_SHARPNESS = "sgsr_sharpness"
         private const val KEY_RESHADE_PROFILE = "reshade_profile"
         private const val KEY_FPS_OVERLAY = "fps_overlay"
     }

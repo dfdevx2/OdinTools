@@ -2,18 +2,15 @@ package de.langerhans.odintools.main
 
 import android.content.Context
 import android.content.Intent
-import android.view.KeyEvent
 import androidx.compose.runtime.toMutableStateList
 import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.R
 import de.langerhans.odintools.data.SharedPrefsRepo
-import de.langerhans.odintools.models.ControllerStyle
 import de.langerhans.odintools.models.ControllerStyle.Disconnect
 import de.langerhans.odintools.models.ControllerStyle.Odin
 import de.langerhans.odintools.models.ControllerStyle.Xbox
-import de.langerhans.odintools.models.L2R2Style
 import de.langerhans.odintools.models.L2R2Style.Analog
 import de.langerhans.odintools.models.L2R2Style.Both
 import de.langerhans.odintools.models.L2R2Style.Digital
@@ -56,7 +53,6 @@ class MainViewModel @Inject constructor(
         settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
-        // Safety: clear global layer properties on startup
         executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
         executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
 
@@ -83,21 +79,21 @@ class MainViewModel @Inject constructor(
                 lsfgFramePacing = prefs.lsfgFramePacing,
                 globalSgsrEnabled = prefs.globalSgsrEnabled,
                 sgsrMode = prefs.sgsrMode,
+                sgsrSharpness = prefs.sgsrSharpness,
                 reshadeProfile = prefs.reshadeProfile,
                 showFpsOverlay = prefs.showFpsOverlay,
                 isDllImported = losslessManager.isDllImported,
 
-                // Restores saved state from persistent storage
-                overlayEnabled = prefs.overlayEnabled
+                overlayEnabled = prefs.overlayEnabled,
+                overlayHandleOpacity = prefs.overlayHandleOpacity,
+                overlayHandleWidth = prefs.overlayHandleWidth
             )
         }
 
-        // Push initial states to native Vulkan bridge
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
         VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
         VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
 
-        // Automatically starts the overlay service if previously enabled by user
         if (prefs.overlayEnabled) {
             context.startService(Intent(context, GamingOverlayService::class.java))
         }
@@ -119,7 +115,6 @@ class MainViewModel @Inject constructor(
 
     fun isFirstRun(): Boolean = prefs.isFirstRun
 
-    // Odin Hub - Overlay Sidebar
     fun toggleOverlay(enabled: Boolean) {
         prefs.overlayEnabled = enabled
         _uiState.update { it.copy(overlayEnabled = enabled) }
@@ -131,12 +126,21 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun updateHandleOpacity(opacity: Float) {
+        prefs.overlayHandleOpacity = opacity
+        _uiState.update { it.copy(overlayHandleOpacity = opacity) }
+    }
+
+    fun updateHandleWidth(width: Int) {
+        prefs.overlayHandleWidth = width
+        _uiState.update { it.copy(overlayHandleWidth = width) }
+    }
+
     fun toggleFpsOverlay(enabled: Boolean) {
         prefs.showFpsOverlay = enabled
         _uiState.update { it.copy(showFpsOverlay = enabled) }
     }
 
-    // Odin Hub - Performance Controls
     fun updateLimitMode(mode: String) {
         _uiState.update { it.copy(activeLimitMode = mode) }
     }
@@ -161,7 +165,6 @@ class MainViewModel @Inject constructor(
         performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
     }
 
-    // Odin Hub - Display & Frame Generation
     fun updateGlobalLsfg(enabled: Boolean) {
         prefs.globalLsfgEnabled = enabled
         _uiState.update { it.copy(globalLsfgEnabled = enabled) }
@@ -173,6 +176,19 @@ class MainViewModel @Inject constructor(
         prefs.lsfgFramePacing = pacing
         _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing) }
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing)
+    }
+
+    fun updateGlobalSgsr(enabled: Boolean) {
+        prefs.globalSgsrEnabled = enabled
+        _uiState.update { it.copy(globalSgsrEnabled = enabled) }
+        VulkanNativeBridge.applySgsr(enabled, prefs.sgsrMode)
+    }
+
+    fun updateSgsrOptions(mode: String, sharpness: Float) {
+        prefs.sgsrMode = mode
+        prefs.sgsrSharpness = sharpness
+        _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }
+        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode)
     }
 
     fun refreshDllStatus() {
@@ -196,7 +212,6 @@ class MainViewModel @Inject constructor(
         saveTemperature(6500f)
     }
 
-    // Native OdinTools Methods
     fun incompatibleDeviceDialogDismissed() {
         _uiState.update { it.copy(showIncompatibleDeviceDialog = false) }
     }

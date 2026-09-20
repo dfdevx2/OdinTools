@@ -71,7 +71,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     var currentLanguage by rememberSaveable { mutableStateOf("Português (PT-BR)") }
     val isEn = currentLanguage == "English (US)"
 
-    // Theme values retrieved directly from ViewModel database
     val rawTheme = AvailableThemes.getOrElse(uiState.selectedThemeIndex) { AvailableThemes[0] }
     val finalTheme = getResolvedTheme(rawTheme, uiState.useAmoledBlack)
 
@@ -112,7 +111,6 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             VideoBootScreen(theme = finalTheme, onVideoEnded = { showBootAnimation = false; playSfx(R.raw.sfx_select) })
         } else {
             Box(modifier = Modifier.fillMaxSize().background(finalTheme.background)) {
-
                 Box(modifier = Modifier.fillMaxSize().alpha(wallpaperOpacity)) {
                     if (liveWallpaperType == "Live (MP4)") {
                         val activeVideoUri = if (selectedCustomUri != null && selectedCustomUri.toString().startsWith("content://")) selectedCustomUri else Uri.parse("android.resource://${context.packageName}/${R.raw.live_wallpaper}")
@@ -287,6 +285,42 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader(if (isEn) "Upscaling & Frame Generation" else "Upscaling e Geração de Quadros", theme)
 
+        ConsoleCard("Snapdragon Super Resolution (SGSR)", "Upscaling Gráfico Global", theme) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ativar SGSR Global", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = uiState.globalSgsrEnabled, theme = theme, onCheckedChange = { viewModel.updateGlobalSgsr(it); playClick() })
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Modo SGSR", color = theme.text.copy(alpha = 0.7f), fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Spacer(Modifier.height(6.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Quality", "Balanced", "Performance", "Ultra").forEach { mode ->
+                        val isSel = uiState.sgsrMode == mode
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSel) theme.primary else theme.surface)
+                                .clickable { viewModel.updateSgsrOptions(mode, uiState.sgsrSharpness); playClick() }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = mode, color = Color.White, fontFamily = theme.fontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Nitidez (Sharpness): ${"%.2f".format(uiState.sgsrSharpness)}", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Slider(
+                    value = uiState.sgsrSharpness,
+                    onValueChange = { viewModel.updateSgsrOptions(uiState.sgsrMode, it) },
+                    valueRange = 0.0f..1.0f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
+            }
+        }
+
         ConsoleCard("Lossless Scaling (Global)", if (uiState.isDllImported) "Injeção Vulkan LSFG Pronta" else "ATENÇÃO: Lossless.dll ausente. Importe em Sistema.", theme) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -299,7 +333,7 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
                     Box {
                         Text(uiState.lsfgMultiplier, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (uiState.globalLsfgEnabled) { expandedLsfgMult = true; playClick() } }.alpha(if(uiState.globalLsfgEnabled) 1f else 0.5f))
                         DropdownMenu(expanded = expandedLsfgMult, onDismissRequest = { expandedLsfgMult = false }, modifier = Modifier.background(theme.surface)) {
-                            listOf("2x", "3x").forEach { mult -> DropdownMenuItem(text = { Text(mult, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { viewModel.updateLsfgOptions(mult, uiState.lsfgFramePacing); expandedLsfgMult = false; playClick() }) }
+                            listOf("2x", "3x", "4x", "6x").forEach { mult -> DropdownMenuItem(text = { Text(mult, color = theme.text, fontFamily = theme.fontFamily) }, onClick = { viewModel.updateLsfgOptions(mult, uiState.lsfgFramePacing); expandedLsfgMult = false; playClick() }) }
                         }
                     }
                 }
@@ -383,18 +417,36 @@ fun SystemPanel(
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader(if (isEn) "Overlay & Integration" else "Overlay e Integração", theme)
         ConsoleCard("Side Menu / Gaming Overlay", "Barra lateral em tempo real sobre os jogos", theme) {
-            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Ativar Sidebar", color = theme.text, fontFamily = theme.fontFamily)
-                ConsoleToggle(checked = uiState.overlayEnabled, theme = theme, onCheckedChange = {
-                    if (!Settings.canDrawOverlays(context)) {
-                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                        context.startActivity(intent)
-                        Toast.makeText(context, "Conceda permissão de sobreposição!", Toast.LENGTH_LONG).show()
-                    } else {
-                        viewModel.toggleOverlay(it)
-                    }
-                    playClick()
-                })
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ativar Sidebar", color = theme.text, fontFamily = theme.fontFamily)
+                    ConsoleToggle(checked = uiState.overlayEnabled, theme = theme, onCheckedChange = {
+                        if (!Settings.canDrawOverlays(context)) {
+                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                            context.startActivity(intent)
+                            Toast.makeText(context, "Conceda permissão de sobreposição!", Toast.LENGTH_LONG).show()
+                        } else {
+                            viewModel.toggleOverlay(it)
+                        }
+                        playClick()
+                    })
+                }
+                Spacer(Modifier.height(16.dp))
+                Text("Opacidade do Puxador: ${(uiState.overlayHandleOpacity * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Slider(
+                    value = uiState.overlayHandleOpacity,
+                    onValueChange = { viewModel.updateHandleOpacity(it) },
+                    valueRange = 0.1f..1.0f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Espessura do Puxador: ${uiState.overlayHandleWidth} dp", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Slider(
+                    value = uiState.overlayHandleWidth.toFloat(),
+                    onValueChange = { viewModel.updateHandleWidth(it.toInt()) },
+                    valueRange = 16f..36f,
+                    colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary)
+                )
             }
         }
 
