@@ -62,9 +62,10 @@
                 android:value="true" />
         </service>
 
-        <!-- NOVO SERVIÇO DO ODIN HUB (Substitui o serviço antigo) -->
+        <!-- SERVIÇO DA BARRA LATERAL (GAMING OVERLAY) -->
         <service
-            android:name=".service.OdinHubService"
+            android:name=".service.GamingOverlayService"
+            android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

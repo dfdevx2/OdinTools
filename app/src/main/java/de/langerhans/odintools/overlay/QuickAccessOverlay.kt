@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -23,6 +24,7 @@ class QuickAccessOverlay(
     private val context: Context,
     private val prefs: SharedPrefsRepo
 ) {
+    private val TAG = "OdinOverlay"
     private val windowManager = context.getSystemService<WindowManager>()
     private val main = Handler(Looper.getMainLooper())
 
@@ -40,8 +42,20 @@ class QuickAccessOverlay(
 
     fun show() {
         main.post {
-            if (host != null || !Settings.canDrawOverlays(context)) return@post
-            val wm = windowManager ?: return@post
+            if (host != null) {
+                Log.w(TAG, "Overlay host already exists. Ignoring show call.")
+                return@post
+            }
+            if (!Settings.canDrawOverlays(context)) {
+                Log.e(TAG, "Cannot show overlay: SYSTEM_ALERT_WINDOW permission missing!")
+                return@post
+            }
+            val wm = windowManager ?: run {
+                Log.e(TAG, "WindowManager is null!")
+                return@post
+            }
+
+            Log.i(TAG, "Initializing OverlayViewHost and adding to WindowManager...")
             val newHost = OverlayViewHost(context)
             val lp = newParams(expanded = false)
 
@@ -100,14 +114,16 @@ class QuickAccessOverlay(
                 }
             }
 
-            val added = runCatching { wm.addView(newHost.composeView, lp) }.isSuccess
-            if (!added) {
+            try {
+                wm.addView(newHost.composeView, lp)
+                newHost.onResumed()
+                host = newHost
+                params = lp
+                Log.i(TAG, "Overlay successfully added to WindowManager on screen!")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to add overlay to WindowManager: ${e.message}", e)
                 newHost.onDestroyed()
-                return@post
             }
-            newHost.onResumed()
-            host = newHost
-            params = lp
         }
     }
 
@@ -120,6 +136,7 @@ class QuickAccessOverlay(
             host = null
             params = null
             expandedFlow.value = false
+            Log.i(TAG, "Overlay removed from WindowManager.")
         }
     }
 
@@ -133,30 +150,36 @@ class QuickAccessOverlay(
     }
 
     private fun newParams(expanded: Boolean) = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.WRAP_CONTENT,
+        (32 * density).toInt(),
+        (100 * density).toInt(),
         overlayType(),
-        0,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
         PixelFormat.TRANSLUCENT
     ).also { applyGeometry(it, expanded) }
 
     private fun applyGeometry(lp: WindowManager.LayoutParams, expanded: Boolean) {
-        val base = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         if (expanded) {
-            lp.flags = base or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            lp.flags = WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             lp.dimAmount = 0.5f
             lp.gravity = Gravity.TOP or Gravity.END
             lp.width = (340 * density).toInt()
             lp.height = WindowManager.LayoutParams.MATCH_PARENT
+            lp.x = 0
             lp.y = 0
         } else {
-            lp.flags = base or
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             lp.dimAmount = 0f
             lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            lp.width = (28 * density).toInt()
-            lp.height = (90 * density).toInt()
+            lp.width = (32 * density).toInt()
+            lp.height = (100 * density).toInt()
+            lp.x = 0
+            lp.y = 0
         }
     }
 
