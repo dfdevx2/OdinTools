@@ -17,6 +17,7 @@ import de.langerhans.odintools.models.L2R2Style
 import de.langerhans.odintools.models.L2R2Style.Analog
 import de.langerhans.odintools.models.L2R2Style.Both
 import de.langerhans.odintools.models.L2R2Style.Digital
+import de.langerhans.odintools.service.GamingOverlayService
 import de.langerhans.odintools.tools.DeviceType.ODIN2
 import de.langerhans.odintools.tools.DeviceUtils
 import de.langerhans.odintools.tools.SettingsRepo
@@ -24,15 +25,11 @@ import de.langerhans.odintools.tools.ShellExecutor
 import de.langerhans.odintools.tools.hardware.DisplayManager
 import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
-import de.langerhans.odintools.services.GamingOverlayService
 import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -59,7 +56,7 @@ class MainViewModel @Inject constructor(
         settings.applyRequiredSettings()
         val deviceType = deviceUtils.getDeviceType()
 
-        // Clear unsafe global layer property on start
+        // Clear global unsafe layer properties on startup to prevent system app crashes
         executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
         executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
 
@@ -92,6 +89,7 @@ class MainViewModel @Inject constructor(
             )
         }
 
+        // Push initial state to native Vulkan C++ layer
         VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
         VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
         VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
@@ -129,7 +127,7 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(showFpsOverlay = enabled) }
     }
 
-    // Odin Hub - Performance
+    // Odin Hub - Performance Controls
     fun updateLimitMode(mode: String) {
         _uiState.update { it.copy(activeLimitMode = mode) }
     }
@@ -154,7 +152,7 @@ class MainViewModel @Inject constructor(
         performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
     }
 
-    // Odin Hub - Display
+    // Odin Hub - Display & Frame Generation
     fun updateGlobalLsfg(enabled: Boolean) {
         prefs.globalLsfgEnabled = enabled
         _uiState.update { it.copy(globalLsfgEnabled = enabled) }
