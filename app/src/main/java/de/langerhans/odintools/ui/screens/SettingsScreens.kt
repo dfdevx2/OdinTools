@@ -5,6 +5,7 @@ package de.langerhans.odintools.ui.screens
 import android.graphics.ImageDecoder
 import android.media.MediaPlayer
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
@@ -52,6 +53,7 @@ import de.langerhans.odintools.R
 import de.langerhans.odintools.main.MainUiModel
 import de.langerhans.odintools.main.MainViewModel
 import de.langerhans.odintools.tools.SettingsRepo
+import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.ui.WelcomeScreen
 import de.langerhans.odintools.ui.composables.*
 import de.langerhans.odintools.ui.theme.*
@@ -916,6 +918,7 @@ fun SystemPanel(
     onPresetStaticSelected: (Int, String) -> Unit, onPresetVideoSelected: () -> Unit, onCustomUriSelected: (Uri, String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     var expandedLang by rememberSaveable { mutableStateOf(false) }
     var expandedTheme by rememberSaveable { mutableStateOf(false) }
     var expandedWallType by rememberSaveable { mutableStateOf(false) }
@@ -928,11 +931,17 @@ fun SystemPanel(
         uri?.let { onCustomUriSelected(it, if (isEn) "Custom Video (.MP4)" else "Vídeo Personalizado (.MP4)") }
     }
 
-    // Seletor para a Lossless.dll
+    // Seletor com feedback visual (Toast) para a Lossless.dll
+    val losslessManager = remember { LosslessManager(context) }
     val losslessPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            // Aqui a DLL é selecionada e pronta para ser processada pelo LosslessManager
+            val success = losslessManager.importDll(it)
+            if (success) {
+                Toast.makeText(context, if (isEn) "Lossless.dll imported successfully!" else "Lossless.dll importada com sucesso!", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, if (isEn) "Failed to import DLL." else "Falha ao importar DLL.", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -960,7 +969,6 @@ fun SystemPanel(
             }
         }
 
-        // --- ADIÇÃO DO MOTOR LOSSLESS SCALING (IMPORTAÇÃO DA DLL) ---
         ConsoleSectionHeader(if (isEn) "Lossless Scaling Engine" else "Motor Lossless Scaling", theme)
         ConsoleCard(if (isEn) "Lossless.dll Integration" else "Integração do Lossless.dll", if (isEn) "Required for Frame Generation" else "Necessário para Geração de Quadros", theme, playClick = playClick) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {

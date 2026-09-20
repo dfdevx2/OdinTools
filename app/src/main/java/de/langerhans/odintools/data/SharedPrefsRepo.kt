@@ -1,160 +1,71 @@
 package de.langerhans.odintools.data
 
-import android.content.Context
-import android.content.SharedPreferences.OnSharedPreferenceChangeListener
-import dagger.hilt.android.qualifiers.ApplicationContext
-import de.langerhans.odintools.models.ControllerStyle
-import de.langerhans.odintools.models.CustomClockProfile
-import de.langerhans.odintools.models.CustomTdpProfile
-import de.langerhans.odintools.models.L2R2Style
+import android.content.SharedPreferences
 import javax.inject.Inject
 
 class SharedPrefsRepo @Inject constructor(
-    @ApplicationContext private val context: Context,
+    private val prefs: SharedPreferences
 ) {
-
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    var disabledControllerStyle
+    var disabledControllerStyle: String?
         get() = prefs.getString(KEY_DISABLED_CONTROLLER_STYLE, null)
         set(value) = prefs.edit().putString(KEY_DISABLED_CONTROLLER_STYLE, value).apply()
 
-    var disabledL2r2Style
+    var disabledL2r2Style: String?
         get() = prefs.getString(KEY_DISABLED_L2R2_STYLE, null)
         set(value) = prefs.edit().putString(KEY_DISABLED_L2R2_STYLE, value).apply()
 
-    var saturationOverride
+    var saturationOverride: Float
         get() = prefs.getFloat(KEY_SATURATION_OVERRIDE, 1.0f)
         set(value) = prefs.edit().putFloat(KEY_SATURATION_OVERRIDE, value).apply()
 
-    var vibrationStrength
-        get() = prefs.getInt(KEY_VIBRATION_STRENGTH, 0)
-        set(value) = prefs.edit().putInt(KEY_VIBRATION_STRENGTH, value).apply()
+    var temperatureOverride: Float
+        get() = prefs.getFloat(KEY_TEMPERATURE_OVERRIDE, 6500f)
+        set(value) = prefs.edit().putFloat(KEY_TEMPERATURE_OVERRIDE, value).apply()
 
-    var appOverridesEnabled
-        get() = prefs.getBoolean(KEY_APP_OVERRIDE_ENABLED, true)
-        set(value) = prefs.edit().putBoolean(KEY_APP_OVERRIDE_ENABLED, value).apply()
+    var appOverridesEnabled: Boolean
+        get() = prefs.getBoolean(KEY_APP_OVERRIDES_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_APP_OVERRIDES_ENABLED, value).apply()
 
-    var overrideDelay
+    var overrideDelay: Boolean
         get() = prefs.getBoolean(KEY_OVERRIDE_DELAY, false)
         set(value) = prefs.edit().putBoolean(KEY_OVERRIDE_DELAY, value).apply()
 
-    var chargeLimitEnabled
+    var chargeLimitEnabled: Boolean
         get() = prefs.getBoolean(KEY_CHARGE_LIMIT_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_CHARGE_LIMIT_ENABLED, value).apply()
 
-    var minBatteryLevel
-        get() = prefs.getInt(KEY_MIN_BATTERY_LEVEL, 20)
+    var minBatteryLevel: Int
+        get() = prefs.getInt(KEY_MIN_BATTERY_LEVEL, 75)
         set(value) = prefs.edit().putInt(KEY_MIN_BATTERY_LEVEL, value).apply()
 
-    var maxBatteryLevel
-        get() = prefs.getInt(KEY_MAX_BATTERY_LEVEL, 80)
+    var maxBatteryLevel: Int
+        get() = prefs.getInt(KEY_MAX_BATTERY_LEVEL, 85)
         set(value) = prefs.edit().putInt(KEY_MAX_BATTERY_LEVEL, value).apply()
 
-    // --- Perfis Customizados (Nativo via StringSet) ---
-    var customTdpProfiles: List<CustomTdpProfile>
-        get() {
-            val set = prefs.getStringSet(KEY_CUSTOM_TDP_PROFILES, emptySet()) ?: emptySet()
-            return set.mapNotNull { CustomTdpProfile.deserialize(it) }
-        }
-        set(value) {
-            val set = value.map { it.serialize() }.toSet()
-            prefs.edit().putStringSet(KEY_CUSTOM_TDP_PROFILES, set).apply()
-        }
-
-    var customClockProfiles: List<CustomClockProfile>
-        get() {
-            val set = prefs.getStringSet(KEY_CUSTOM_CLOCK_PROFILES, emptySet()) ?: emptySet()
-            return set.mapNotNull { CustomClockProfile.deserialize(it) }
-        }
-        set(value) {
-            val set = value.map { it.serialize() }.toSet()
-            prefs.edit().putStringSet(KEY_CUSTOM_CLOCK_PROFILES, set).apply()
-        }
-    // ------------------------------------------------
-
-    private var chargeLimitEnabledListener: OnSharedPreferenceChangeListener? = null
-
-    fun observeChargeLimitEnabledState(onChargeLimitEnabled: (newState: Boolean) -> Unit) {
-        chargeLimitEnabledListener = OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_CHARGE_LIMIT_ENABLED) {
-                onChargeLimitEnabled(chargeLimitEnabled)
-            }
-        }
-        prefs.registerOnSharedPreferenceChangeListener(chargeLimitEnabledListener)
-    }
-
-    fun removeChargeLimitEnabledObserver() {
-        prefs.unregisterOnSharedPreferenceChangeListener(chargeLimitEnabledListener)
-        chargeLimitEnabledListener = null
-    }
-
-    private var appOverrideEnabledListener: OnSharedPreferenceChangeListener? = null
-
-    fun observeAppOverrideEnabledState(
-        onAppOverridesEnabled: (newState: Boolean) -> Unit,
-        onOverrideDelayEnabled: (newState: Boolean) -> Unit,
-    ) {
-        appOverrideEnabledListener = OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_APP_OVERRIDE_ENABLED) {
-                onAppOverridesEnabled(appOverridesEnabled)
-            } else if (key == KEY_OVERRIDE_DELAY) {
-                onOverrideDelayEnabled(overrideDelay)
-            }
-        }
-        prefs.registerOnSharedPreferenceChangeListener(appOverrideEnabledListener)
-    }
-
-    fun removeAppOverrideEnabledObserver() {
-        prefs.unregisterOnSharedPreferenceChangeListener(appOverrideEnabledListener)
-        appOverrideEnabledListener = null
-    }
-
-    var videoOutputOverrideEnabled
+    var videoOutputOverrideEnabled: Boolean
         get() = prefs.getBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, value).apply()
 
-    var videoOutputControllerStyle
-        get() = prefs.getString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, ControllerStyle.Unknown.id)
-        set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, value).apply()
+    var videoOutputControllerStyle: Int
+        get() = prefs.getInt(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, 0)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, value).apply()
 
-    var videoOutputL2R2Style
-        get() = prefs.getString(KEY_VIDEO_OUTPUT_L2R2_STYLE, L2R2Style.Unknown.id)
-        set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
-
-    private var videoOutputOverrideEnabledListener: OnSharedPreferenceChangeListener? = null
-
-    fun observeVideoOutputOverrideEnabledState(onVideoOutputOverrideEnabled: (newState: Boolean) -> Unit) {
-        videoOutputOverrideEnabledListener = OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED) {
-                onVideoOutputOverrideEnabled(videoOutputOverrideEnabled)
-            }
-        }
-        prefs.registerOnSharedPreferenceChangeListener(videoOutputOverrideEnabledListener)
-    }
-
-    fun removeVideoOutputOverrideEnabledObserver() {
-        prefs.unregisterOnSharedPreferenceChangeListener(videoOutputOverrideEnabledListener)
-        videoOutputOverrideEnabledListener = null
-    }
+    var videoOutputL2R2Style: Int
+        get() = prefs.getInt(KEY_VIDEO_OUTPUT_L2R2_STYLE, 0)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
 
     companion object {
-        private const val PREFS_NAME = "odintools"
-
         private const val KEY_DISABLED_CONTROLLER_STYLE = "disabled_controller_style"
         private const val KEY_DISABLED_L2R2_STYLE = "disabled_l2r2_style"
         private const val KEY_SATURATION_OVERRIDE = "saturation_override"
-        private const val KEY_VIBRATION_STRENGTH = "vibration_strength"
-        private const val KEY_APP_OVERRIDE_ENABLED = "app_override_enabled"
+        private const val KEY_TEMPERATURE_OVERRIDE = "temperature_override"
+        private const val KEY_APP_OVERRIDES_ENABLED = "app_overrides_enabled"
         private const val KEY_OVERRIDE_DELAY = "override_delay"
         private const val KEY_CHARGE_LIMIT_ENABLED = "charge_limit_enabled"
         private const val KEY_MIN_BATTERY_LEVEL = "min_battery_level"
         private const val KEY_MAX_BATTERY_LEVEL = "max_battery_level"
         private const val KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED = "video_output_override_enabled"
-        private const val KEY_VIDEO_OUTPUT_CONTROLLER_STYLE = "video_output_override_controller_style"
-        private const val KEY_VIDEO_OUTPUT_L2R2_STYLE = "video_output_override_l2r2_style"
-
-        private const val KEY_CUSTOM_TDP_PROFILES = "custom_tdp_profiles_set"
-        private const val KEY_CUSTOM_CLOCK_PROFILES = "custom_clock_profiles_set"
+        private const val KEY_VIDEO_OUTPUT_CONTROLLER_STYLE = "video_output_controller_style"
+        private const val KEY_VIDEO_OUTPUT_L2R2_STYLE = "video_output_l2r2_style"
     }
 }
