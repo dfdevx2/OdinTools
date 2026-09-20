@@ -5,7 +5,7 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.SharedPrefsRepo
-import de.langerhans.odintools.tools.ShellExecutor
+import de.langerhans.odintools.models.FanMode
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import javax.inject.Inject
@@ -18,15 +18,13 @@ class ForegroundAppWatcherService : AccessibilityService() {
 
     private var currentApp = ""
 
-    // INTERCEPTA O BOTÃO (EX: BACK) PARA ABRIR O OVERLAY E NÃO FECHAR O JOGO!
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val shortcutKey = prefs.overlayShortcutKeyCode
         if (shortcutKey != 0 && event.keyCode == shortcutKey) {
             if (event.action == KeyEvent.ACTION_DOWN) {
-                // Manda o sinal para o Overlay abrir/fechar
                 GamingOverlayService.toggleOverlayFlow.tryEmit(Unit)
             }
-            return true // RETORNA TRUE PARA CONSUMIR O CLIQUE! O JOGO NÃO RECEBE O BOTÃO.
+            return true
         }
         return super.onKeyEvent(event)
     }
@@ -35,7 +33,6 @@ class ForegroundAppWatcherService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString() ?: return
 
-            // Ignorar o próprio Odin Hub ou SystemUI
             if (pkg == currentApp || pkg.contains("odintools") || pkg.contains("systemui")) return
 
             currentApp = pkg
@@ -46,12 +43,10 @@ class ForegroundAppWatcherService : AccessibilityService() {
     }
 
     private fun applySteamDeckLogic(pkg: String) {
-        // Verifica se existe perfil salvo para este jogo no banco de dados.
-        // Se não existir, puxa o Global automaticamente.
         val hasOverride = prefs.hasAppOverride(pkg)
-
         val limitMode = prefs.activeLimitMode
 
+        // 1. TDP ou Clocks
         if (limitMode == "TDP") {
             val tdp = if (hasOverride) prefs.getPerAppTdp(pkg, prefs.tdpValue) else prefs.tdpValue
             performanceManager.applyDynamicTdp(tdp)
@@ -62,9 +57,17 @@ class ForegroundAppWatcherService : AccessibilityService() {
             performanceManager.applyAbsoluteClocks((perf * 1000).toLong(), (prime * 1000).toLong(), (gpu * 1000000).toLong())
         }
 
-        val fan = if (hasOverride) prefs.getPerAppFanMode(pkg, prefs.fanMode) else prefs.fanMode
-        ShellExecutor().setIntSystemSetting("fan_mode", fan)
+        // 2. Ventoinha baseada no modelo FanMode
+        val fanModeValue = if (hasOverride) prefs.getPerAppFanMode(pkg, prefs.fanMode) else prefs.fanMode
+        val fanModeObj = when(fanModeValue) {
+            1 -> FanMode.Silent
+            4 -> FanMode.Smart
+            5 -> FanMode.Sport
+            else -> FanMode.Stock
+        }
+        performanceManager.applyFanMode(fanModeObj)
 
+        // 3. Gráficos, SGSR, LSFG e ReShade
         val sgsr = if (hasOverride) prefs.getPerAppSgsr(pkg, prefs.globalSgsrEnabled) else prefs.globalSgsrEnabled
         val sgsrMode = if (hasOverride) prefs.getPerAppSgsrMode(pkg, prefs.sgsrMode) else prefs.sgsrMode
         VulkanNativeBridge.applySgsr(sgsr, sgsrMode)

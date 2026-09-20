@@ -1,5 +1,6 @@
 package de.langerhans.odintools.tools.hardware
 
+import de.langerhans.odintools.models.FanMode
 import de.langerhans.odintools.tools.ShellExecutor
 import kotlinx.coroutines.*
 import java.io.File
@@ -14,12 +15,10 @@ class PerformanceManager @Inject constructor(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var hardwareJob: Job? = null
 
-    // Caminhos Sysfs (Snapdragon 8 Elite SM8750)
     private val SYSFS_CPU_PERF_MAX = "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq"
     private val SYSFS_CPU_PRIME_MAX = "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq"
     private val SYSFS_GPU_MAX = "/sys/class/kgsl/kgsl-3d0/max_gpuclk"
 
-    // Limites de Frequência Absolutos Reais
     private val PRIME_MAX_KHZ = 4320000L
     private val PRIME_MIN_KHZ = 2246000L
     private val PERF_MAX_KHZ = 3530000L
@@ -34,8 +33,6 @@ class PerformanceManager @Inject constructor(
     private var isAutoTdp = false
     private var targetWatts = 15f
 
-    var isKsuModuleActive = false
-
     init {
         startHardwareDaemon()
     }
@@ -47,8 +44,7 @@ class PerformanceManager @Inject constructor(
                 if (isAutoTdp) {
                     calculateAutoTdpStep()
                     writeLimitsToSysfs()
-                } else if (!isKsuModuleActive) {
-                    // Sem KSU, reafirma a cada segundo via && com trava 444
+                } else {
                     writeLimitsToSysfs()
                 }
                 delay(1000)
@@ -74,7 +70,6 @@ class PerformanceManager @Inject constructor(
     private fun writeLimitsToSysfs() {
         if (!executor.pServerAvailable) return
 
-        // Manda abrir, escrever e trancar em uma única transação atômica!
         executor.executeAsRoot("chmod 666 $SYSFS_CPU_PERF_MAX && echo $targetPerf > $SYSFS_CPU_PERF_MAX && chmod 444 $SYSFS_CPU_PERF_MAX")
         executor.executeAsRoot("chmod 666 $SYSFS_CPU_PRIME_MAX && echo $targetPrime > $SYSFS_CPU_PRIME_MAX && chmod 444 $SYSFS_CPU_PRIME_MAX")
         executor.executeAsRoot("chmod 666 $SYSFS_GPU_MAX && echo $targetGpu > $SYSFS_GPU_MAX && chmod 444 $SYSFS_GPU_MAX")
@@ -90,10 +85,14 @@ class PerformanceManager @Inject constructor(
 
     fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long) {
         isAutoTdp = false
-        targetPerf = perfClockKHz
-        targetPrime = primeClockKHz
-        targetGpu = gpuClockHz
+        targetPerf = perfClockKHz.coerceIn(PERF_MIN_KHZ, PERF_MAX_KHZ)
+        targetPrime = primeClockKHz.coerceIn(PRIME_MIN_KHZ, PRIME_MAX_KHZ)
+        targetGpu = gpuClockHz.coerceIn(GPU_MIN_HZ, GPU_MAX_HZ)
         writeLimitsToSysfs()
+    }
+
+    fun applyFanMode(fanMode: FanMode) {
+        fanMode.enable(executor)
     }
 
     private fun getRealTimePowerDrawWatts(): Float {
