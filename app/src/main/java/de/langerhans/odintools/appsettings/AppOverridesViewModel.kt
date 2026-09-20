@@ -21,12 +21,32 @@ import javax.inject.Inject
 data class AppOverrideUiState(
     val packageName: String = "",
     val appName: String = "",
+
+    // Performance
     val tdpProfile: String = "Nenhum",
     val clockProfile: String = "Nenhum",
     val fanProfile: String = "Nenhum",
+
+    // Lossless Scaling (Frame Gen)
+    val lsfgEnabled: Boolean = false,
+    val lsfgMultiplier: Int = 2,
+    val lsfgFramePacing: Boolean = true,
+    val lsfgQuality: Float = 1.0f,
+
+    // Snapdragon Super Resolution
+    val sgsrEnabled: Boolean = false,
+    val sgsrMode: String = "Quality",
+    val sgsrSharpness: Float = 0.5f,
+
+    // ReShade e Cor
+    val reshadeProfile: String = "Nenhum",
+    val saturationOverride: Float = 1.0f,
+    val temperatureOverride: Float = 6500f,
+
     val isSaved: Boolean = false,
     val availableTdpProfiles: List<String> = emptyList(),
-    val availableClockProfiles: List<String> = emptyList()
+    val availableClockProfiles: List<String> = emptyList(),
+    val availableReshadeProfiles: List<String> = listOf("Nenhum", "Vibrante", "Cinema", "Retrô", "HDR Boost")
 )
 
 @HiltViewModel
@@ -43,7 +63,6 @@ class AppOverrideViewModel @Inject constructor(
     init {
         val packageName = savedStateHandle.get<String>("packageName") ?: ""
 
-        // Puxa os perfis padrão + os perfis customizados que você já criou!
         val baseTdp = listOf("Nenhum", "Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock (Padrão AYN)")
         val customTdp = sharedPrefsRepo.customTdpProfiles.map { it.name }
 
@@ -79,22 +98,40 @@ class AppOverrideViewModel @Inject constructor(
                     tdpProfile = entity.tdpProfile ?: "Nenhum",
                     clockProfile = entity.clockProfile ?: "Nenhum",
                     fanProfile = entity.fanProfile ?: "Nenhum",
+
+                    lsfgEnabled = entity.lsfgEnabled,
+                    lsfgMultiplier = entity.lsfgMultiplier,
+                    lsfgFramePacing = entity.lsfgFramePacing,
+                    lsfgQuality = entity.lsfgQuality,
+
+                    sgsrEnabled = entity.sgsrEnabled,
+                    sgsrMode = entity.sgsrMode,
+                    sgsrSharpness = entity.sgsrSharpness,
+
+                    reshadeProfile = entity.reshadeProfile,
+                    saturationOverride = entity.saturationOverride,
+                    temperatureOverride = entity.temperatureOverride,
+
                     isSaved = true
                 ) }
             }
         }
     }
 
-    fun updateTdpProfile(profile: String) {
-        _uiState.update { it.copy(tdpProfile = profile) }
+    fun updatePerformance(tdp: String, clock: String, fan: String) {
+        _uiState.update { it.copy(tdpProfile = tdp, clockProfile = clock, fanProfile = fan) }
     }
 
-    fun updateClockProfile(profile: String) {
-        _uiState.update { it.copy(clockProfile = profile) }
+    fun updateLsfg(enabled: Boolean, multiplier: Int, framePacing: Boolean, quality: Float) {
+        _uiState.update { it.copy(lsfgEnabled = enabled, lsfgMultiplier = multiplier, lsfgFramePacing = framePacing, lsfgQuality = quality) }
     }
 
-    fun updateFanProfile(profile: String) {
-        _uiState.update { it.copy(fanProfile = profile) }
+    fun updateSgsr(enabled: Boolean, mode: String, sharpness: Float) {
+        _uiState.update { it.copy(sgsrEnabled = enabled, sgsrMode = mode, sgsrSharpness = sharpness) }
+    }
+
+    fun updateDisplayColor(reshade: String, saturation: Float, temperature: Float) {
+        _uiState.update { it.copy(reshadeProfile = reshade, saturationOverride = saturation, temperatureOverride = temperature) }
     }
 
     fun saveOverride() {
@@ -104,7 +141,21 @@ class AppOverrideViewModel @Inject constructor(
                 packageName = current.packageName,
                 tdpProfile = if (current.tdpProfile == "Nenhum") null else current.tdpProfile,
                 clockProfile = if (current.clockProfile == "Nenhum") null else current.clockProfile,
-                fanProfile = if (current.fanProfile == "Nenhum") null else current.fanProfile
+                fanProfile = if (current.fanProfile == "Nenhum") null else current.fanProfile,
+
+                lsfgEnabled = current.lsfgEnabled,
+                lsfgMultiplier = current.lsfgMultiplier,
+                lsfgPerformanceMode = false, // Reservado para uso futuro no backend
+                lsfgFramePacing = current.lsfgFramePacing,
+                lsfgQuality = current.lsfgQuality,
+
+                sgsrEnabled = current.sgsrEnabled,
+                sgsrMode = current.sgsrMode,
+                sgsrSharpness = current.sgsrSharpness,
+
+                reshadeProfile = current.reshadeProfile,
+                saturationOverride = current.saturationOverride,
+                temperatureOverride = current.temperatureOverride
             )
             overrideDao.save(entity)
             _uiState.update { it.copy(isSaved = true) }
@@ -114,11 +165,11 @@ class AppOverrideViewModel @Inject constructor(
     fun deleteOverride() {
         viewModelScope.launch(Dispatchers.IO) {
             overrideDao.deleteByPackageName(_uiState.value.packageName)
-            _uiState.update { it.copy(
-                tdpProfile = "Nenhum",
-                clockProfile = "Nenhum",
-                fanProfile = "Nenhum",
-                isSaved = false
+            _uiState.update { AppOverrideUiState(
+                packageName = it.packageName,
+                appName = it.appName,
+                availableTdpProfiles = it.availableTdpProfiles,
+                availableClockProfiles = it.availableClockProfiles
             ) }
         }
     }
