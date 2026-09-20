@@ -22,23 +22,19 @@ data class AppOverrideUiState(
     val packageName: String = "",
     val appName: String = "",
 
-    // Performance
     val tdpProfile: String = "Nenhum",
     val clockProfile: String = "Nenhum",
     val fanProfile: String = "Nenhum",
 
-    // Lossless Scaling (Frame Gen)
     val lsfgEnabled: Boolean = false,
     val lsfgMultiplier: Int = 2,
     val lsfgFramePacing: Boolean = true,
     val lsfgQuality: Float = 1.0f,
 
-    // Snapdragon Super Resolution
     val sgsrEnabled: Boolean = false,
     val sgsrMode: String = "Quality",
     val sgsrSharpness: Float = 0.5f,
 
-    // ReShade e Cor
     val reshadeProfile: String = "Nenhum",
     val saturationOverride: Float = 1.0f,
     val temperatureOverride: Float = 6500f,
@@ -64,15 +60,12 @@ class AppOverrideViewModel @Inject constructor(
         val packageName = savedStateHandle.get<String>("packageName") ?: ""
 
         val baseTdp = listOf("Nenhum", "Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock (Padrão AYN)")
-        val customTdp = sharedPrefsRepo.customTdpProfiles.map { it.name }
-
         val baseClock = listOf("Nenhum", "Power Save (Underclock Seguro)", "Balanced (Intermediário)", "Triple A (Alto Desempenho)", "Stock (Padrão AYN)")
-        val customClock = sharedPrefsRepo.customClockProfiles.map { it.name }
 
         _uiState.update { it.copy(
             packageName = packageName,
-            availableTdpProfiles = baseTdp + customTdp,
-            availableClockProfiles = baseClock + customClock
+            availableTdpProfiles = baseTdp,
+            availableClockProfiles = baseClock
         ) }
 
         loadAppDetails(packageName)
@@ -145,7 +138,7 @@ class AppOverrideViewModel @Inject constructor(
 
                 lsfgEnabled = current.lsfgEnabled,
                 lsfgMultiplier = current.lsfgMultiplier,
-                lsfgPerformanceMode = false, // Reservado para uso futuro no backend
+                lsfgPerformanceMode = false,
                 lsfgFramePacing = current.lsfgFramePacing,
                 lsfgQuality = current.lsfgQuality,
 
