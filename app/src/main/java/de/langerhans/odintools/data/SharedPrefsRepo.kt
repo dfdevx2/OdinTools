@@ -50,13 +50,15 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, value).apply()
 
-    var videoOutputControllerStyle: Int
-        get() = prefs.getInt(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, 0)
-        set(value) = prefs.edit().putInt(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, value).apply()
+    // CORRIGIDO: Retornou para String? em vez de Int
+    var videoOutputControllerStyle: String?
+        get() = prefs.getString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, null)
+        set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, value).apply()
 
-    var videoOutputL2R2Style: Int
-        get() = prefs.getInt(KEY_VIDEO_OUTPUT_L2R2_STYLE, 0)
-        set(value) = prefs.edit().putInt(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
+    // CORRIGIDO: Retornou para String? em vez de Int
+    var videoOutputL2R2Style: String?
+        get() = prefs.getString(KEY_VIDEO_OUTPUT_L2R2_STYLE, null)
+        set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
 
     // Persistência Global para o Lossless Scaling e SGSR na aba Display
     var globalLsfgEnabled: Boolean
