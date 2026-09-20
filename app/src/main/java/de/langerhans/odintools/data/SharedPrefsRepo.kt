@@ -1,11 +1,18 @@
 package de.langerhans.odintools.data
 
+import android.content.Context
 import android.content.SharedPreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 class SharedPrefsRepo @Inject constructor(
-    private val prefs: SharedPreferences
+    @ApplicationContext context: Context
 ) {
+    // Puxa as preferências padrão do sistema de forma segura, sem precisar de módulos externos do Hilt
+    private val prefs: SharedPreferences = context.getSharedPreferences(context.packageName + "_preferences", Context.MODE_PRIVATE)
+
     var disabledControllerStyle: String?
         get() = prefs.getString(KEY_DISABLED_CONTROLLER_STYLE, null)
         set(value) = prefs.edit().putString(KEY_DISABLED_CONTROLLER_STYLE, value).apply()
@@ -50,17 +57,15 @@ class SharedPrefsRepo @Inject constructor(
         get() = prefs.getBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_VIDEO_OUTPUT_OVERRIDE_ENABLED, value).apply()
 
-    // CORRIGIDO: Retornou para String? em vez de Int
     var videoOutputControllerStyle: String?
         get() = prefs.getString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, null)
         set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_CONTROLLER_STYLE, value).apply()
 
-    // CORRIGIDO: Retornou para String? em vez de Int
     var videoOutputL2R2Style: String?
         get() = prefs.getString(KEY_VIDEO_OUTPUT_L2R2_STYLE, null)
         set(value) = prefs.edit().putString(KEY_VIDEO_OUTPUT_L2R2_STYLE, value).apply()
 
-    // Persistência Global para o Lossless Scaling e SGSR na aba Display
+    // Persistência Global para o Lossless Scaling e SGSR na aba Display (Anti-Reset)
     var globalLsfgEnabled: Boolean
         get() = prefs.getBoolean(KEY_GLOBAL_LSFG_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_GLOBAL_LSFG_ENABLED, value).apply()
