@@ -27,22 +27,23 @@ data class AppOverrideUiState(
     val fanProfile: String = "Nenhum",
 
     val lsfgEnabled: Boolean = false,
-    val lsfgMultiplier: Int = 2,
+    val lsfgMultiplier: String = "2x",
     val lsfgFramePacing: Boolean = true,
+    val lsfgPerformanceMode: Boolean = false,
     val lsfgQuality: Float = 1.0f,
 
     val sgsrEnabled: Boolean = false,
     val sgsrMode: String = "Quality",
     val sgsrSharpness: Float = 0.5f,
 
-    val reshadeProfile: String = "Nenhum",
+    val reshadeProfile: String = "Native",
     val saturationOverride: Float = 1.0f,
     val temperatureOverride: Float = 6500f,
 
     val isSaved: Boolean = false,
     val availableTdpProfiles: List<String> = emptyList(),
     val availableClockProfiles: List<String> = emptyList(),
-    val availableReshadeProfiles: List<String> = listOf("Nenhum", "Vibrante", "Cinema", "Retrô", "HDR Boost")
+    val availableReshadeProfiles: List<String> = listOf("Native", "Vibrant", "Retro", "HDR Boost", "Game Clarity", "Cinematic")
 )
 
 @HiltViewModel
@@ -59,8 +60,8 @@ class AppOverrideViewModel @Inject constructor(
     init {
         val packageName = savedStateHandle.get<String>("packageName") ?: ""
 
-        val baseTdp = listOf("Nenhum", "Power Save (5W)", "Balanced (11W)", "Triple A (14.5W)", "Stock (Padrão AYN)")
-        val baseClock = listOf("Nenhum", "Power Save (Underclock Seguro)", "Balanced (Intermediário)", "Triple A (Alto Desempenho)", "Stock (Padrão AYN)")
+        val baseTdp = listOf("Nenhum", "Power Save", "Balanced", "Triple A", "Stock")
+        val baseClock = listOf("Nenhum", "Power Save", "Balanced", "Triple A", "Stock")
 
         _uiState.update { it.copy(
             packageName = packageName,
@@ -93,15 +94,16 @@ class AppOverrideViewModel @Inject constructor(
                     fanProfile = entity.fanProfile ?: "Nenhum",
 
                     lsfgEnabled = entity.lsfgEnabled,
-                    lsfgMultiplier = entity.lsfgMultiplier,
+                    lsfgMultiplier = "${entity.lsfgMultiplier}x",
                     lsfgFramePacing = entity.lsfgFramePacing,
+                    lsfgPerformanceMode = entity.lsfgPerformanceMode,
                     lsfgQuality = entity.lsfgQuality,
 
                     sgsrEnabled = entity.sgsrEnabled,
                     sgsrMode = entity.sgsrMode,
                     sgsrSharpness = entity.sgsrSharpness,
 
-                    reshadeProfile = entity.reshadeProfile,
+                    reshadeProfile = entity.reshadeProfile ?: "Native",
                     saturationOverride = entity.saturationOverride,
                     temperatureOverride = entity.temperatureOverride,
 
@@ -115,8 +117,8 @@ class AppOverrideViewModel @Inject constructor(
         _uiState.update { it.copy(tdpProfile = tdp, clockProfile = clock, fanProfile = fan) }
     }
 
-    fun updateLsfg(enabled: Boolean, multiplier: Int, framePacing: Boolean, quality: Float) {
-        _uiState.update { it.copy(lsfgEnabled = enabled, lsfgMultiplier = multiplier, lsfgFramePacing = framePacing, lsfgQuality = quality) }
+    fun updateLsfg(enabled: Boolean, multiplier: String, framePacing: Boolean, performanceMode: Boolean, quality: Float) {
+        _uiState.update { it.copy(lsfgEnabled = enabled, lsfgMultiplier = multiplier, lsfgFramePacing = framePacing, lsfgPerformanceMode = performanceMode, lsfgQuality = quality) }
     }
 
     fun updateSgsr(enabled: Boolean, mode: String, sharpness: Float) {
@@ -130,6 +132,8 @@ class AppOverrideViewModel @Inject constructor(
     fun saveOverride() {
         viewModelScope.launch(Dispatchers.IO) {
             val current = _uiState.value
+            val multInt = current.lsfgMultiplier.replace("x", "").toIntOrNull() ?: 2
+
             val entity = AppOverrideEntity(
                 packageName = current.packageName,
                 tdpProfile = if (current.tdpProfile == "Nenhum") null else current.tdpProfile,
@@ -137,8 +141,8 @@ class AppOverrideViewModel @Inject constructor(
                 fanProfile = if (current.fanProfile == "Nenhum") null else current.fanProfile,
 
                 lsfgEnabled = current.lsfgEnabled,
-                lsfgMultiplier = current.lsfgMultiplier,
-                lsfgPerformanceMode = false,
+                lsfgMultiplier = multInt,
+                lsfgPerformanceMode = current.lsfgPerformanceMode,
                 lsfgFramePacing = current.lsfgFramePacing,
                 lsfgQuality = current.lsfgQuality,
 

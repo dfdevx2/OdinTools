@@ -15,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -44,7 +43,6 @@ fun QuickAccessContent(
     )
 
     var panelOpacity by remember { mutableFloatStateOf(prefs.overlayPanelOpacity) }
-    var panelBlur by remember { mutableFloatStateOf(prefs.overlayPanelBlur) }
 
     Box(
         modifier = Modifier
@@ -55,7 +53,6 @@ fun QuickAccessContent(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(if (panelBlur > 0f) Modifier.blur((panelBlur * 40).dp) else Modifier)
                     .background(theme.background.copy(alpha = panelOpacity), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
                     .border(1.dp, theme.primary.copy(alpha = 0.5f), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
             ) {
@@ -64,9 +61,7 @@ fun QuickAccessContent(
                     prefs = prefs,
                     isDllReady = isDllReady,
                     panelOpacity = panelOpacity,
-                    panelBlur = panelBlur,
                     onOpacityChange = { panelOpacity = it; prefs.overlayPanelOpacity = it },
-                    onBlurChange = { panelBlur = it; prefs.overlayPanelBlur = it },
                     onClose = onClose
                 )
             }
@@ -93,9 +88,7 @@ private fun QuickAccessPanel(
     prefs: SharedPrefsRepo,
     isDllReady: Boolean,
     panelOpacity: Float,
-    panelBlur: Float,
     onOpacityChange: (Float) -> Unit,
-    onBlurChange: (Float) -> Unit,
     onClose: () -> Unit
 ) {
     val performanceManager = remember { PerformanceManager(ShellExecutor()) }
@@ -117,7 +110,6 @@ private fun QuickAccessPanel(
     var activeLimitMode by remember { mutableStateOf("TDP") }
     var fanMode by remember { mutableIntStateOf(prefs.getPerAppFanMode(currentApp, prefs.fanMode)) }
 
-    // Valores absolutos para resolver o erro
     var tdpValue by remember { mutableFloatStateOf(prefs.getPerAppTdp(currentApp, 15f)) }
     var cpuPerfClock by remember { mutableFloatStateOf(prefs.getPerAppPerfClock(currentApp, 3530f)) }
     var cpuPrimeClock by remember { mutableFloatStateOf(prefs.getPerAppPrimeClock(currentApp, 4320f)) }
@@ -160,9 +152,6 @@ private fun QuickAccessPanel(
                 Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(theme.surface.copy(alpha = 0.5f)).padding(12.dp)) {
                     Text("Opacidade do Fundo: ${(panelOpacity * 100).toInt()}%", color = theme.text, fontSize = 11.sp)
                     Slider(value = panelOpacity, onValueChange = onOpacityChange, valueRange = 0.1f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Desfoque (Vidro Fosco): ${(panelBlur * 100).toInt()}%", color = theme.text, fontSize = 11.sp)
-                    Slider(value = panelBlur, onValueChange = onBlurChange, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

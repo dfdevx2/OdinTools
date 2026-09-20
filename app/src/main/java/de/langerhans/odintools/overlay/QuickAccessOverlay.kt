@@ -35,8 +35,11 @@ class QuickAccessOverlay(
     private var initialTouchX = 0f
     private var isDragging = false
 
-    private val density: Float
-        get() = context.resources.displayMetrics.density
+    private val density: Float get() = context.resources.displayMetrics.density
+
+    fun toggle() {
+        setExpanded(!expandedFlow.value)
+    }
 
     fun show() {
         main.post {
@@ -53,6 +56,8 @@ class QuickAccessOverlay(
                 val currentTheme = getResolvedTheme(rawTheme, prefs.useAmoledBlack)
                 val isDllReady = losslessManager.isDllImported && prefs.globalLsfgEnabled
 
+                // O Blur foi 100% removido do QuickAccessContent nas edições anteriores.
+                // Agora o Compose desenhará limpo e sem borrar a si mesmo.
                 QuickAccessContent(
                     isExpanded = expanded,
                     theme = currentTheme,
@@ -68,34 +73,19 @@ class QuickAccessOverlay(
                 val currentParams = params ?: return@setOnTouchListener false
 
                 when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialY = currentParams.y
-                        initialTouchY = event.rawY
-                        initialTouchX = event.rawX
-                        isDragging = false
-                        true
-                    }
+                    MotionEvent.ACTION_DOWN -> { initialY = currentParams.y; initialTouchY = event.rawY; initialTouchX = event.rawX; isDragging = false; true }
                     MotionEvent.ACTION_MOVE -> {
                         val dy = event.rawY - initialTouchY
                         val dx = initialTouchX - event.rawX
-
                         if (abs(dy) > 10 || isDragging) {
                             isDragging = true
                             currentParams.y = initialY + dy.toInt()
                             wm.updateViewLayout(newHost.composeView, currentParams)
                         }
-                        if (dx > 40 && !isDragging) {
-                            setExpanded(true)
-                        }
+                        if (dx > 40 && !isDragging) setExpanded(true)
                         true
                     }
-                    MotionEvent.ACTION_UP -> {
-                        val dx = initialTouchX - event.rawX
-                        if (!isDragging && abs(dx) < 20) {
-                            setExpanded(true)
-                        }
-                        true
-                    }
+                    MotionEvent.ACTION_UP -> { val dx = initialTouchX - event.rawX; if (!isDragging && abs(dx) < 20) setExpanded(true); true }
                     else -> false
                 }
             }
@@ -105,18 +95,13 @@ class QuickAccessOverlay(
                 newHost.onResumed()
                 host = newHost
                 params = lp
-            } catch (e: Exception) {
-                newHost.onDestroyed()
-            }
+            } catch (e: Exception) { newHost.onDestroyed() }
         }
     }
 
     fun hide() {
         main.post {
-            host?.let { h ->
-                runCatching { windowManager?.removeView(h.composeView) }
-                h.onDestroyed()
-            }
+            host?.let { h -> runCatching { windowManager?.removeView(h.composeView) }; h.onDestroyed() }
             host = null
             params = null
             expandedFlow.value = false
@@ -137,35 +122,22 @@ class QuickAccessOverlay(
         return WindowManager.LayoutParams(
             (widthDp * density).toInt(),
             if (expanded) WindowManager.LayoutParams.MATCH_PARENT else (70 * density).toInt(),
-            overlayType(),
-            if (expanded) {
-                WindowManager.LayoutParams.FLAG_DIM_BEHIND or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-            } else {
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-            },
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            if (expanded) WindowManager.LayoutParams.FLAG_DIM_BEHIND or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).also { applyGeometry(it, expanded) }
     }
 
     private fun applyGeometry(lp: WindowManager.LayoutParams, expanded: Boolean) {
         if (expanded) {
-            lp.flags = WindowManager.LayoutParams.FLAG_DIM_BEHIND or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            lp.flags = WindowManager.LayoutParams.FLAG_DIM_BEHIND or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             lp.dimAmount = 0.4f
             lp.gravity = Gravity.TOP or Gravity.END
             lp.width = (390 * density).toInt()
             lp.height = WindowManager.LayoutParams.MATCH_PARENT
-            lp.x = 0
-            lp.y = 0
+            lp.x = 0; lp.y = 0
         } else {
-            lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             lp.dimAmount = 0f
             lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
             lp.width = (prefs.overlayHandleWidth.coerceIn(16, 36) * density).toInt()
@@ -173,12 +145,4 @@ class QuickAccessOverlay(
             lp.x = 0
         }
     }
-
-    private fun overlayType(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
 }
