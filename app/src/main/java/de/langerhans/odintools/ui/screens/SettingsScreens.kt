@@ -713,6 +713,16 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
                 )
             }
         }
+
+        // --- O BLOCO FALTANTE DOS OVERRIDES POR JOGO DEVOLVIDO AO SEU LUGAR ---
+        ConsoleSectionHeader(if (isEn) "Game Rules & Per-App Overrides" else "Regras por Jogo e Aplicativo", theme)
+        ConsoleCard(if (isEn) "Per-App Overrides" else "Overrides por Jogo", if (isEn) "Configure specific TDP & clock rules for emulators" else "Vincule perfis de TDP, Clocks, Tela e Fan a emuladores específicos", theme, playClick = playClick) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (isEn) "Enable Overrides" else "Habilitar Overrides por App", color = theme.text, fontFamily = theme.fontFamily)
+                ConsoleToggle(checked = uiState.appOverridesEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.appOverridesEnabled(it); playClick() })
+            }
+            TriggerPreference(icon = R.drawable.ic_app_settings, title = R.string.appOverrides, description = R.string.appOverridesDescription) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); navigateToOverrideList() }
+        }
     }
 
     if (showClockSaveDialog) {
@@ -787,7 +797,7 @@ fun DisplayPanel(theme: ConsoleTheme, isEn: Boolean, playClick: () -> Unit) {
             title = "Lossless Scaling (Frame Gen)",
             subtitle = if (isEn) "Injects interpolated frames to multiply FPS" else "Injeta quadros interpolados para multiplicar o FPS",
             theme = theme,
-            playClick = null // Mantém nulo para o D-Pad fluir nos sliders internos
+            playClick = null
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -929,7 +939,7 @@ fun SystemPanel(
                 ConsoleToggle(checked = amoledBlack, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAmoledToggle(it); playClick() })
             }
         }
-        ConsoleSectionHeader(if (isEn) "Audio Mixer" else "Mixer de Áudio", theme)
+        ConsoleSectionHeader(if (isEn) "Audio Mixer" else "Mixer de Audio", theme)
         ConsoleCard(if (isEn) "Background Music (BGM)" else "Música de Fundo (BGM)", "Volume: ${(bgmVolume * 100).toInt()}%", theme, playClick = null) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
