@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.data.SharedPrefsRepo
@@ -16,8 +17,11 @@ import de.langerhans.odintools.tools.ShellExecutor
 import de.langerhans.odintools.tools.hardware.DisplayManager
 import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.SoundManager
+import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
-import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,7 +38,8 @@ class MainViewModel @Inject constructor(
     private val performanceManager: PerformanceManager,
     private val displayManager: DisplayManager,
     private val losslessManager: LosslessManager,
-    private val soundManager: SoundManager
+    private val soundManager: SoundManager,
+    private val graphicsLayerManager: GraphicsLayerManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiModel())
@@ -94,9 +99,9 @@ class MainViewModel @Inject constructor(
 
         soundManager.startBackgroundMusicIfEnabled()
 
-        VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
-        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
-        VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+        graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
+        graphicsLayerManager.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
+        graphicsLayerManager.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
 
         if (prefs.overlayEnabled) {
             context.startService(Intent(context, GamingOverlayService::class.java))
@@ -111,10 +116,32 @@ class MainViewModel @Inject constructor(
 
     fun updateOverlayPanelOpacity(opacity: Float) { prefs.overlayPanelOpacity = opacity; _uiState.update { it.copy(overlayPanelOpacity = opacity) } }
     fun updateUseRootTarget(enabled: Boolean) { prefs.useRootTarget = enabled; _uiState.update { it.copy(useRootTarget = enabled) } }
-    fun updateFanMode(mode: Int) { prefs.fanMode = mode; _uiState.update { it.copy(fanMode = mode) }; performanceManager.applyFanMode(FanMode.fromSettingsValue(mode)) }
+    fun updateFanMode(mode: Int) { prefs.fanMode = mode; _uiState.update { it.copy(fanMode = mode) }; viewModelScope.launch(Dispatchers.IO) { performanceManager.applyFanMode(FanMode.fromSettingsValue(mode)) } }
     fun updateLimitMode(mode: String) { _uiState.update { it.copy(activeLimitMode = mode) } }
-    fun updateTdp(watts: Float) { _uiState.update { it.copy(tdpValue = watts) }; performanceManager.applyDynamicTdp(watts) }
-    fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) { _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }; performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong()) }
+
+    // CAUSA RAIZ do lag/travamento reportado ao arrastar o slider de TDP ou mudar de preset de
+    // clock na aba Settings -> Performance: `applyDynamicTdp`/`applyAbsoluteClocks` fazem um
+    // `exec` root SÍNCRONO, e eram chamados diretamente na callback de UI do Compose
+    // (`onValueChange`, disparado dezenas de vezes por segundo durante o arrasto) -- cada chamada
+    // bloqueava a thread principal até o `su` terminar. Movido para `viewModelScope` em
+    // `Dispatchers.IO`, cancelando o job anterior antes de lançar o novo para não empilhar
+    // escritas root concorrentes enquanto o dedo ainda arrasta -- só a mais recente chega a correr.
+    private var tdpJob: Job? = null
+    private var clockJob: Job? = null
+
+    fun updateTdp(watts: Float) {
+        _uiState.update { it.copy(tdpValue = watts) }
+        tdpJob?.cancel()
+        tdpJob = viewModelScope.launch(Dispatchers.IO) { performanceManager.applyDynamicTdp(watts) }
+    }
+
+    fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
+        _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
+        clockJob?.cancel()
+        clockJob = viewModelScope.launch(Dispatchers.IO) {
+            performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+        }
+    }
 
     fun saveCustomProfile(name: String, type: String, val1: Float, val2: Float, val3: Float, val4: Float) {
         prefs.saveCustomProfile(name, type, val1, val2, val3, val4)
@@ -139,11 +166,11 @@ class MainViewModel @Inject constructor(
     fun updateHandleWidth(width: Int) { prefs.overlayHandleWidth = width; _uiState.update { it.copy(overlayHandleWidth = width) } }
     fun toggleFpsOverlay(enabled: Boolean) { prefs.showFpsOverlay = enabled; _uiState.update { it.copy(showFpsOverlay = enabled) } }
 
-    fun updateGlobalLsfg(enabled: Boolean) { prefs.globalLsfgEnabled = enabled; _uiState.update { it.copy(globalLsfgEnabled = enabled) }; VulkanNativeBridge.applyLsfg(enabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing) }
-    fun updateLsfgOptions(multiplier: String, pacing: Boolean, perfMode: Boolean) { prefs.lsfgMultiplier = multiplier; prefs.lsfgFramePacing = pacing; prefs.lsfgPerformanceMode = perfMode; _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing, lsfgPerformanceMode = perfMode) }; VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing) }
+    fun updateGlobalLsfg(enabled: Boolean) { prefs.globalLsfgEnabled = enabled; _uiState.update { it.copy(globalLsfgEnabled = enabled) }; graphicsLayerManager.applyLsfg(enabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing) }
+    fun updateLsfgOptions(multiplier: String, pacing: Boolean, perfMode: Boolean) { prefs.lsfgMultiplier = multiplier; prefs.lsfgFramePacing = pacing; prefs.lsfgPerformanceMode = perfMode; _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing, lsfgPerformanceMode = perfMode) }; graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing) }
 
-    fun updateGlobalSgsr(enabled: Boolean) { prefs.globalSgsrEnabled = enabled; _uiState.update { it.copy(globalSgsrEnabled = enabled) }; VulkanNativeBridge.applySgsr(enabled, prefs.sgsrMode) }
-    fun updateSgsrOptions(mode: String, sharpness: Float) { prefs.sgsrMode = mode; prefs.sgsrSharpness = sharpness; _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }; VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode) }
+    fun updateGlobalSgsr(enabled: Boolean) { prefs.globalSgsrEnabled = enabled; _uiState.update { it.copy(globalSgsrEnabled = enabled) }; graphicsLayerManager.applySgsr(enabled, prefs.sgsrMode) }
+    fun updateSgsrOptions(mode: String, sharpness: Float) { prefs.sgsrMode = mode; prefs.sgsrSharpness = sharpness; _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }; graphicsLayerManager.applySgsr(prefs.globalSgsrEnabled, mode) }
 
     fun saveSaturation(newValue: Float) { prefs.saturationOverride = newValue; displayManager.applySaturation(newValue); _uiState.update { it.copy(currentSaturation = newValue) } }
     fun saveTemperature(newValue: Float) { prefs.temperatureOverride = newValue; displayManager.applyTemperature(newValue); _uiState.update { it.copy(currentTemperature = newValue) } }

@@ -41,7 +41,7 @@ data class MainUiModel(
     val lsfgPerformanceMode: Boolean = false,
     val sgsrMode: String = "Quality",
     val sgsrSharpness: Float = 0.5f,
-    val reshadeProfile: String = "Native",
+    val reshadeProfile: String = "Nativo",
     val showFpsOverlay: Boolean = false,
     val isDllImported: Boolean = false,
 

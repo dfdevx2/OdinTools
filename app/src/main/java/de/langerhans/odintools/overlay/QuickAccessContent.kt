@@ -26,9 +26,12 @@ import de.langerhans.odintools.data.AppOverrideEntity
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.models.FanMode
+import de.langerhans.odintools.models.ReshadeProfiles
+import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
-import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import de.langerhans.odintools.ui.theme.ConsoleTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
@@ -39,6 +42,7 @@ fun QuickAccessContent(
     isDllReady: Boolean,
     performanceManager: PerformanceManager,
     overrideRepository: AppOverrideRepository,
+    graphicsLayerManager: GraphicsLayerManager,
     onExpand: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -68,6 +72,7 @@ fun QuickAccessContent(
                     isDllReady = isDllReady,
                     performanceManager = performanceManager,
                     overrideRepository = overrideRepository,
+                    graphicsLayerManager = graphicsLayerManager,
                     panelOpacity = panelOpacity,
                     onOpacityChange = { panelOpacity = it; prefs.overlayPanelOpacity = it },
                     onClose = onClose
@@ -97,6 +102,7 @@ private fun QuickAccessPanel(
     isDllReady: Boolean,
     performanceManager: PerformanceManager,
     overrideRepository: AppOverrideRepository,
+    graphicsLayerManager: GraphicsLayerManager,
     panelOpacity: Float,
     onOpacityChange: (Float) -> Unit,
     onClose: () -> Unit
@@ -115,6 +121,27 @@ private fun QuickAccessPanel(
     // instanciar um novo.
     val currentApp = prefs.currentForegroundApp
     val scope = rememberCoroutineScope()
+
+    // CAUSA RAIZ do lag/travamento ao arrastar o slider de TDP ou trocar de preset de clock
+    // rapidamente: `performanceManager.applyDynamicTdp`/`applyAbsoluteClocks` fazem um `exec`
+    // root SÍNCRONO (bloqueante) por chamada. Um `Slider.onValueChange` dispara dezenas de vezes
+    // por segundo durante o arrasto -- cada uma bloqueando a thread de UI do Compose até o `su`
+    // terminar, daí o "trava mesmo". `applyTdpLive`/`applyClocksLive` abaixo movem essa escrita
+    // para uma coroutine em Dispatchers.IO E cancelam o job anterior antes de lançar o novo, para
+    // não empilhar dezenas de `setprop`/escritas de sysfs concorrentes na fila do root enquanto o
+    // dedo ainda está a arrastar -- só a escrita mais recente chega a correr.
+    var tdpJob by remember { mutableStateOf<Job?>(null) }
+    var clockJob by remember { mutableStateOf<Job?>(null) }
+    fun applyTdpLive(watts: Float) {
+        tdpJob?.cancel()
+        tdpJob = scope.launch(Dispatchers.IO) { performanceManager.applyDynamicTdp(watts) }
+    }
+    fun applyClocksLive(perfMHz: Float, primeMHz: Float, gpuMHz: Float) {
+        clockJob?.cancel()
+        clockJob = scope.launch(Dispatchers.IO) {
+            performanceManager.applyAbsoluteClocks((perfMHz * 1000).toLong(), (primeMHz * 1000).toLong(), (gpuMHz * 1_000_000).toLong())
+        }
+    }
 
     // CAUSA RAIZ (auditoria): tudo aqui era lido/escrito só no SharedPrefs (`prefs.getPerApp*`
     // / `prefs.savePerAppConfig`), um armazenamento TOTALMENTE separado da tabela Room que a
@@ -228,13 +255,16 @@ private fun QuickAccessPanel(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("VULKAN POST-FX & RESHADE", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                val allProfiles = listOf("Native", "Vibrant", "Retro", "HDR Boost", "Game Clarity", "Cinematic")
+                // Antes: lista fixa com nomes que nem batiam certo com os effectId reais do
+                // shader (ver ReshadeProfiles.kt). Agora usa a lista curada -- os ~20 efeitos
+                // que já existem em window_postfx.frag, mas só os 10 que fazem sentido expor.
+                val allProfiles = ReshadeProfiles.labels
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (rowProfiles in allProfiles.chunked(2)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             for (profile in rowProfiles) {
                                 val isSelected = reshadeProfile == profile
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isSelected) theme.primary.copy(alpha = 0.8f) else theme.surface.copy(alpha = 0.5f)).border(1.dp, if (isSelected) theme.primary else theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).clickable { reshadeProfile = profile; VulkanNativeBridge.applyReshade(profile, prefs.saturationOverride, prefs.temperatureOverride); persistOverride() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isSelected) theme.primary.copy(alpha = 0.8f) else theme.surface.copy(alpha = 0.5f)).border(1.dp, if (isSelected) theme.primary else theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).clickable { reshadeProfile = profile; scope.launch(Dispatchers.IO) { graphicsLayerManager.applyReshade(profile, prefs.saturationOverride, prefs.temperatureOverride) }; persistOverride() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                     Text(profile, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
@@ -247,21 +277,21 @@ private fun QuickAccessPanel(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(theme.surface.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Ativar SGSR", color = theme.text, fontSize = 12.sp)
-                    Switch(checked = sgsrEnabled, onCheckedChange = { sgsrEnabled = it; VulkanNativeBridge.applySgsr(it, sgsrMode); persistOverride() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
+                    Switch(checked = sgsrEnabled, onCheckedChange = { sgsrEnabled = it; scope.launch(Dispatchers.IO) { graphicsLayerManager.applySgsr(it, sgsrMode) }; persistOverride() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Modo SGSR", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("Quality", "Balanced", "Performance", "Ultra").forEach { mode ->
                         val isSel = sgsrMode == mode
-                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { sgsrMode = mode; VulkanNativeBridge.applySgsr(sgsrEnabled, mode); persistOverride() }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { sgsrMode = mode; scope.launch(Dispatchers.IO) { graphicsLayerManager.applySgsr(sgsrEnabled, mode) }; persistOverride() }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                             Text(mode, color = Color.White, fontSize = 10.sp)
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Nitidez (Sharpness): ${"%.2f".format(sgsrSharpness)}", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
-                Slider(value = sgsrSharpness, onValueChange = { sgsrSharpness = it }, onValueChangeFinished = { persistOverride() }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                Slider(value = sgsrSharpness, onValueChange = { sgsrSharpness = it }, onValueChangeFinished = { scope.launch(Dispatchers.IO) { graphicsLayerManager.applySgsrSharpness(sgsrSharpness) }; persistOverride() }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("LOSSLESS SCALING (LSFG)", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -270,7 +300,7 @@ private fun QuickAccessPanel(
                     Column {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Ativar LSFG", color = theme.text, fontSize = 12.sp)
-                            Switch(checked = lsfgEnabled && isDllReady, enabled = isDllReady, onCheckedChange = { lsfgEnabled = it; VulkanNativeBridge.applyLsfg(it, lsfgMultiplier, lsfgPacing); persistOverride() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
+                            Switch(checked = lsfgEnabled && isDllReady, enabled = isDllReady, onCheckedChange = { lsfgEnabled = it; scope.launch(Dispatchers.IO) { graphicsLayerManager.applyLsfg(it, lsfgMultiplier, lsfgPacing) }; persistOverride() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
                         }
                         if (!isDllReady) {
                             Text("Requer Lossless.dll no Hub", color = Color(0xFFFF5252), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
@@ -280,7 +310,7 @@ private fun QuickAccessPanel(
                                 Text("Multiplicador", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     listOf("2x", "3x", "4x").forEach { mult ->
-                                        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(if (lsfgMultiplier == mult) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable { lsfgMultiplier = mult; VulkanNativeBridge.applyLsfg(lsfgEnabled, mult, lsfgPacing); persistOverride() }.padding(horizontal = 8.dp, vertical = 2.dp)) {
+                                        Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(if (lsfgMultiplier == mult) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable { lsfgMultiplier = mult; scope.launch(Dispatchers.IO) { graphicsLayerManager.applyLsfg(lsfgEnabled, mult, lsfgPacing) }; persistOverride() }.padding(horizontal = 8.dp, vertical = 2.dp)) {
                                             Text(mult, color = Color.White, fontSize = 10.sp)
                                         }
                                     }
@@ -289,7 +319,7 @@ private fun QuickAccessPanel(
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Sincronia (Frame Pacing)", color = theme.text.copy(alpha = 0.7f), fontSize = 11.sp)
-                                Switch(checked = lsfgPacing, onCheckedChange = { lsfgPacing = it; VulkanNativeBridge.applyLsfg(lsfgEnabled, lsfgMultiplier, it); persistOverride() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
+                                Switch(checked = lsfgPacing, onCheckedChange = { lsfgPacing = it; scope.launch(Dispatchers.IO) { graphicsLayerManager.applyLsfg(lsfgEnabled, lsfgMultiplier, it) }; persistOverride() }, colors = SwitchDefaults.colors(checkedThumbColor = theme.primary, checkedTrackColor = theme.primary.copy(alpha = 0.4f)))
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -311,7 +341,7 @@ private fun QuickAccessPanel(
                     // acessibilidade reaplicava os perfis ao trocar de app.
                     for (mode in FanMode.selectable) {
                         val isSel = fanMode == mode.settingsValue
-                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { fanMode = mode.settingsValue; performanceManager.applyFanMode(mode); persistOverride() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { fanMode = mode.settingsValue; scope.launch(Dispatchers.IO) { performanceManager.applyFanMode(mode) }; persistOverride() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                             Text(mode.shortLabel, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -321,8 +351,8 @@ private fun QuickAccessPanel(
                 Text("MODO DE LIMITAÇÃO", color = theme.text.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (activeLimitMode == "TDP") theme.primary else Color.Transparent).clickable { activeLimitMode = "TDP"; performanceManager.applyDynamicTdp(tdpValue); persistOverride() }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Text("TDP", color = if (activeLimitMode == "TDP") Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (activeLimitMode == "CLOCK") theme.primary else Color.Transparent).clickable { activeLimitMode = "CLOCK"; performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong()); persistOverride() }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Text("Clocks", color = if (activeLimitMode == "CLOCK") Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (activeLimitMode == "TDP") theme.primary else Color.Transparent).clickable { activeLimitMode = "TDP"; scope.launch(Dispatchers.IO) { performanceManager.applyDynamicTdp(tdpValue) }; persistOverride() }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Text("TDP", color = if (activeLimitMode == "TDP") Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (activeLimitMode == "CLOCK") theme.primary else Color.Transparent).clickable { activeLimitMode = "CLOCK"; scope.launch(Dispatchers.IO) { performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong()) }; persistOverride() }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Text("Clocks", color = if (activeLimitMode == "CLOCK") Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -334,7 +364,7 @@ private fun QuickAccessPanel(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         for ((profName, watts) in tdpProfiles) {
                             val isSel = tdpValue == watts
-                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { tdpValue = watts; performanceManager.applyDynamicTdp(watts); persistOverride() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) { Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { tdpValue = watts; scope.launch(Dispatchers.IO) { performanceManager.applyDynamicTdp(watts) }; persistOverride() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) { Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                         }
                     }
                     val userTdpProfiles = prefs.getAllCustomProfiles().filter { it.type == "TDP" }
@@ -343,7 +373,7 @@ private fun QuickAccessPanel(
                         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             for (prof in userTdpProfiles) {
                                 val isSel = tdpValue == prof.v1
-                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { tdpValue = prof.v1; performanceManager.applyDynamicTdp(prof.v1); persistOverride() }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable { tdpValue = prof.v1; scope.launch(Dispatchers.IO) { performanceManager.applyDynamicTdp(prof.v1) }; persistOverride() }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                                     Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -352,7 +382,7 @@ private fun QuickAccessPanel(
                     Spacer(modifier = Modifier.height(12.dp))
                     Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(theme.surface.copy(alpha = 0.5f)).padding(12.dp)) {
                         Text("TDP Limit: ${tdpValue.toInt()} W", color = theme.text, fontSize = 12.sp)
-                        Slider(value = tdpValue, onValueChange = { tdpValue = it; performanceManager.applyDynamicTdp(it) }, onValueChangeFinished = { persistOverride() }, valueRange = 5f..25f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
+                        Slider(value = tdpValue, onValueChange = { tdpValue = it; applyTdpLive(it) }, onValueChangeFinished = { persistOverride() }, valueRange = 5f..25f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -371,7 +401,7 @@ private fun QuickAccessPanel(
                             Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.5f)).clickable {
                                 cpuPerfClock = prof.perfClockMHz
                                 cpuPrimeClock = prof.primeClockMHz
-                                performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                                applyClocksLive(cpuPerfClock, cpuPrimeClock, gpuClock)
                                 persistOverride()
                             }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) { Text(prof.label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                         }
@@ -381,7 +411,7 @@ private fun QuickAccessPanel(
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             for (prof in userClockProfiles) {
-                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(theme.surface.copy(alpha = 0.5f)).clickable { cpuPerfClock = prof.v2; cpuPrimeClock = prof.v3; gpuClock = prof.v4; performanceManager.applyAbsoluteClocks((prof.v2 * 1000).toLong(), (prof.v3 * 1000).toLong(), (prof.v4 * 1000000).toLong()); persistOverride() }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(theme.surface.copy(alpha = 0.5f)).clickable { cpuPerfClock = prof.v2; cpuPrimeClock = prof.v3; gpuClock = prof.v4; applyClocksLive(prof.v2, prof.v3, prof.v4); persistOverride() }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                                     Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -401,7 +431,7 @@ private fun QuickAccessPanel(
                                 val isSel = cpuPerfClock == preset.clockMHz
                                 Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
                                     cpuPerfClock = preset.clockMHz
-                                    performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                                    applyClocksLive(cpuPerfClock, cpuPrimeClock, gpuClock)
                                     persistOverride()
                                 }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                                     Text(preset.label, color = theme.text, fontSize = 10.sp)
@@ -416,7 +446,7 @@ private fun QuickAccessPanel(
                                 val isSel = cpuPrimeClock == preset.clockMHz
                                 Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
                                     cpuPrimeClock = preset.clockMHz
-                                    performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                                    applyClocksLive(cpuPerfClock, cpuPrimeClock, gpuClock)
                                     persistOverride()
                                 }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                                     Text(preset.label, color = theme.text, fontSize = 10.sp)
@@ -431,7 +461,7 @@ private fun QuickAccessPanel(
                                 val isSel = gpuClock == preset.clockMHz
                                 Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
                                     gpuClock = preset.clockMHz
-                                    performanceManager.applyAbsoluteClocks((cpuPerfClock * 1000).toLong(), (cpuPrimeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
+                                    applyClocksLive(cpuPerfClock, cpuPrimeClock, gpuClock)
                                     persistOverride()
                                 }.padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                                     Text(preset.label, color = theme.text, fontSize = 10.sp)

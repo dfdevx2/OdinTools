@@ -8,12 +8,14 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.getSystemService
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
+import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
 import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.ui.theme.AvailableThemes
@@ -30,7 +32,10 @@ class QuickAccessOverlay(
     // Mesma fonte única de verdade (Room) usada pelo ForegroundAppWatcherService e pela aba
     // Performance -> Per-App Overrides, para que uma alteração feita aqui no overlay já
     // reflita em ambos, e vice-versa.
-    private val overrideRepository: AppOverrideRepository
+    private val overrideRepository: AppOverrideRepository,
+    // Idem -- ver GraphicsLayerManager.kt. Substitui as chamadas estáticas ao antigo
+    // VulkanNativeBridge que existiam dentro de QuickAccessContent.
+    private val graphicsLayerManager: GraphicsLayerManager
 ) {
     private val windowManager = context.getSystemService<WindowManager>()
     private val main = Handler(Looper.getMainLooper())
@@ -74,6 +79,7 @@ class QuickAccessOverlay(
                     isDllReady = isDllReady,
                     performanceManager = performanceManager,
                     overrideRepository = overrideRepository,
+                    graphicsLayerManager = graphicsLayerManager,
                     onExpand = { setExpanded(true) },
                     onClose = { setExpanded(false) }
                 )
@@ -107,6 +113,20 @@ class QuickAccessOverlay(
                 host = newHost
                 params = lp
             } catch (e: Exception) { newHost.onDestroyed() }
+        }
+    }
+
+    /**
+     * Mostra/esconde o puxador lateral consoante haja ou não um jogo/app em primeiro plano (ver
+     * `GamingOverlayService.foregroundGameActive`). Não destrói a view -- só a esconde -- para
+     * reaparecer instantaneamente quando o jogo volta ao foreground, sem recriar toda a janela.
+     * Ao esconder enquanto o painel está expandido, fecha-o primeiro (não faz sentido deixar o
+     * painel aberto sobre a home/launcher).
+     */
+    fun setHandleVisible(visible: Boolean) {
+        main.post {
+            if (!visible && expandedFlow.value) setExpanded(false)
+            host?.composeView?.visibility = if (visible) View.VISIBLE else View.GONE
         }
     }
 

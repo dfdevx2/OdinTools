@@ -7,9 +7,11 @@ set(GLSLC_PATH "${ANDROID_NDK}/shader-tools/${ANDROID_NDK_HOST_SYSTEM_NAME}/glsl
 # Configura as pastas dos shaders do Ludashi
 set(SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(SPV_DIR ${CMAKE_CURRENT_BINARY_DIR}/spv)
+set(GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${SPV_DIR})
+file(MAKE_DIRECTORY ${GEN_DIR})
 
-# Automação: Converte os .frag para binários .spv durante a build
+# --- Passo 1: .frag/.vert -> .spv (como já estava) ---------------------------------------------
 add_custom_command(
         OUTPUT ${SPV_DIR}/window_sgsr.spv
         COMMAND ${GLSLC_PATH} -c ${SHADER_DIR}/window_sgsr.frag -o ${SPV_DIR}/window_sgsr.spv
@@ -22,12 +24,45 @@ add_custom_command(
         DEPENDS ${SHADER_DIR}/window_postfx.frag
 )
 
-# Cria a biblioteca partilhada da nossa Camada Vulkan
-add_library(OdinVulkanLayer SHARED OdinVulkanLayer.cpp)
+add_custom_command(
+        OUTPUT ${SPV_DIR}/fullscreen.spv
+        COMMAND ${GLSLC_PATH} -c ${SHADER_DIR}/fullscreen.vert -o ${SPV_DIR}/fullscreen.spv
+        DEPENDS ${SHADER_DIR}/fullscreen.vert
+)
 
-# Garante que os shaders compilados são injetados como dependências da build
-add_custom_target(CompileShaders DEPENDS ${SPV_DIR}/window_sgsr.spv ${SPV_DIR}/window_postfx.spv)
-add_dependencies(OdinVulkanLayer CompileShaders)
+# --- Passo 2: .spv -> .h (bytecode embutido na .so, ver EmbedSpv.cmake para o porquê) -----------
+add_custom_command(
+        OUTPUT ${GEN_DIR}/shader_sgsr.h
+        COMMAND ${CMAKE_COMMAND} -DSPV_IN=${SPV_DIR}/window_sgsr.spv -DHEADER_OUT=${GEN_DIR}/shader_sgsr.h -DVAR_NAME=g_spv_sgsr -P ${CMAKE_CURRENT_SOURCE_DIR}/EmbedSpv.cmake
+        DEPENDS ${SPV_DIR}/window_sgsr.spv ${CMAKE_CURRENT_SOURCE_DIR}/EmbedSpv.cmake
+)
+add_custom_command(
+        OUTPUT ${GEN_DIR}/shader_postfx.h
+        COMMAND ${CMAKE_COMMAND} -DSPV_IN=${SPV_DIR}/window_postfx.spv -DHEADER_OUT=${GEN_DIR}/shader_postfx.h -DVAR_NAME=g_spv_postfx -P ${CMAKE_CURRENT_SOURCE_DIR}/EmbedSpv.cmake
+        DEPENDS ${SPV_DIR}/window_postfx.spv ${CMAKE_CURRENT_SOURCE_DIR}/EmbedSpv.cmake
+)
+add_custom_command(
+        OUTPUT ${GEN_DIR}/shader_fullscreen.h
+        COMMAND ${CMAKE_COMMAND} -DSPV_IN=${SPV_DIR}/fullscreen.spv -DHEADER_OUT=${GEN_DIR}/shader_fullscreen.h -DVAR_NAME=g_spv_fullscreen -P ${CMAKE_CURRENT_SOURCE_DIR}/EmbedSpv.cmake
+        DEPENDS ${SPV_DIR}/fullscreen.spv ${CMAKE_CURRENT_SOURCE_DIR}/EmbedSpv.cmake
+)
 
-# Liga o log e o sistema gráfico Android à nossa biblioteca
-target_link_libraries(OdinVulkanLayer android log vulkan)
+add_custom_target(CompileShaders DEPENDS
+        ${GEN_DIR}/shader_sgsr.h
+        ${GEN_DIR}/shader_postfx.h
+        ${GEN_DIR}/shader_fullscreen.h
+)
+
+# --- A biblioteca da camada ----------------------------------------------------------------------
+# Nome IMPORTANTE: o loader Vulkan on-device do Android (o mesmo mecanismo usado por
+# `debug.vulkan.layers`/`debug.vulkan.layer.dir`) descobre camadas de terceiros pelo prefixo
+# "libVkLayer_" no nome do ficheiro .so -- por isso o alvo chama-se `VkLayer_OdinHub`, não
+# `OdinVulkanLayer` como antes. Isto já não é carregado pelo nosso próprio processo via
+# System.loadLibrary (ver GraphicsLayerManager.kt/AUDIT) -- é o processo do JOGO que o carrega.
+add_library(VkLayer_OdinHub SHARED OdinVulkanLayer.cpp)
+
+target_include_directories(VkLayer_OdinHub PRIVATE ${GEN_DIR})
+
+add_dependencies(VkLayer_OdinHub CompileShaders)
+
+target_link_libraries(VkLayer_OdinHub android log vulkan)

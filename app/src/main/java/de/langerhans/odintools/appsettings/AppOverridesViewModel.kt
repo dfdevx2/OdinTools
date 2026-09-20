@@ -12,6 +12,7 @@ import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.models.ClusterClockPresets
 import de.langerhans.odintools.models.CombinedClockProfiles
 import de.langerhans.odintools.models.FanMode
+import de.langerhans.odintools.models.ReshadeProfiles
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,12 +58,14 @@ data class AppOverrideUiState(
     val sgsrMode: String = "Quality",
     val sgsrSharpness: Float = 0.5f,
 
-    val reshadeProfile: String = "Native",
+    val reshadeProfile: String = "Nativo",
     val saturationOverride: Float = 1.0f,
     val temperatureOverride: Float = 6500f,
 
     val isSaved: Boolean = false,
-    val availableReshadeProfiles: List<String> = listOf("Native", "Vibrant", "Retro", "HDR Boost", "Game Clarity", "Cinematic")
+    // Antes: lista fixa com nomes desalinhados dos effectId reais do shader (ver
+    // ReshadeProfiles.kt / AUDIT_PARTE5.md). Agora usa a mesma lista curada que o overlay.
+    val availableReshadeProfiles: List<String> = ReshadeProfiles.labels
 )
 
 @HiltViewModel

@@ -1,14 +1,15 @@
 package de.langerhans.odintools.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.models.FanMode
+import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
-import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -16,6 +17,7 @@ class ForegroundAppWatcherService : AccessibilityService() {
 
     @Inject lateinit var prefs: SharedPrefsRepo
     @Inject lateinit var performanceManager: PerformanceManager
+    @Inject lateinit var graphicsLayerManager: GraphicsLayerManager
 
     // Fonte única de verdade das regras por jogo (ver AppOverrideRepository). Substitui as
     // leituras diretas de SharedPrefs (`prefs.getPerApp*`) que existiam aqui antes: aquelas
@@ -24,6 +26,14 @@ class ForegroundAppWatcherService : AccessibilityService() {
     @Inject lateinit var overrideRepository: AppOverrideRepository
 
     private var currentApp = ""
+
+    // Pacote do launcher/home do aparelho -- resolvido uma única vez. Precisamos disto para
+    // distinguir "estou dentro de um jogo" de "voltei para a home", já que a home também dispara
+    // TYPE_WINDOW_STATE_CHANGED como qualquer outra app.
+    private val launcherPackage: String by lazy {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName ?: ""
+    }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val shortcutKey = prefs.overlayShortcutKeyCode
@@ -44,6 +54,18 @@ class ForegroundAppWatcherService : AccessibilityService() {
 
             currentApp = pkg
             prefs.currentForegroundApp = pkg
+
+            // Bug reportado: com o overlay ativado, os perfis/camada Vulkan ficavam a aplicar-se
+            // ao sistema inteiro (inclusive na home/launcher), em vez de só dentro do jogo. A
+            // partir daqui só ativamos a camada Vulkan e o puxador do overlay quando o foreground
+            // é mesmo um jogo/app -- nunca a nossa própria app, a home ou a systemui.
+            val isRealGame = pkg != launcherPackage
+            GamingOverlayService.foregroundGameActive.value = isRealGame
+            if (isRealGame) {
+                graphicsLayerManager.enableLayerForGame(applicationInfo.nativeLibraryDir)
+            } else {
+                graphicsLayerManager.disableLayer()
+            }
 
             applySteamDeckLogic(pkg)
         }
@@ -75,17 +97,17 @@ class ForegroundAppWatcherService : AccessibilityService() {
         // 3. Gráficos, SGSR, LSFG e ReShade
         val sgsr = override?.sgsrEnabled ?: prefs.globalSgsrEnabled
         val sgsrMode = override?.sgsrMode ?: prefs.sgsrMode
-        VulkanNativeBridge.applySgsr(sgsr, sgsrMode)
+        graphicsLayerManager.applySgsr(sgsr, sgsrMode)
 
         val lsfg = override?.lsfgEnabled ?: prefs.globalLsfgEnabled
         val lsfgMult = override?.lsfgMultiplier?.let { "${it}x" } ?: prefs.lsfgMultiplier
         val lsfgPacing = override?.lsfgFramePacing ?: prefs.lsfgFramePacing
-        VulkanNativeBridge.applyLsfg(lsfg, lsfgMult, lsfgPacing)
+        graphicsLayerManager.applyLsfg(lsfg, lsfgMult, lsfgPacing)
 
         val reshade = override?.reshadeProfile ?: prefs.reshadeProfile
         val saturation = override?.saturationOverride ?: prefs.saturationOverride
         val temperature = override?.temperatureOverride ?: prefs.temperatureOverride
-        VulkanNativeBridge.applyReshade(reshade, saturation, temperature)
+        graphicsLayerManager.applyReshade(reshade, saturation, temperature)
     }
 
     override fun onInterrupt() {}
