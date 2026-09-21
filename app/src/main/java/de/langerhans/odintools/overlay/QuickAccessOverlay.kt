@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.getSystemService
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
+import de.langerhans.odintools.tools.ForegroundAppTracker
 import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.ui.theme.AvailableThemes
@@ -31,7 +32,10 @@ class QuickAccessOverlay(
     // Mesma fonte única de verdade (Room) usada pelo ForegroundAppWatcherService e pela aba
     // Performance -> Per-App Overrides, para que uma alteração feita aqui no overlay já
     // reflita em ambos, e vice-versa.
-    private val overrideRepository: AppOverrideRepository
+    private val overrideRepository: AppOverrideRepository,
+    // Diz em que jogo estamos (e se o puxador deve estar visível). É o que permite à composição
+    // deste overlay re-chavear por jogo -- ver ForegroundAppTracker.
+    private val foregroundTracker: ForegroundAppTracker
 ) {
     private val windowManager = context.getSystemService<WindowManager>()
     private val main = Handler(Looper.getMainLooper())
@@ -66,6 +70,14 @@ class QuickAccessOverlay(
                 val currentTheme = getResolvedTheme(rawTheme, prefs.useAmoledBlack)
                 val isDllReady = losslessManager.isDllImported && prefs.globalLsfgEnabled
 
+                // O pacote em primeiro plano e o mapa de regras vêm de StateFlows observados aqui
+                // dentro: é isto que faz esta composição re-chavear sozinha quando o utilizador
+                // troca de jogo (antes era uma leitura única de SharedPreferences, e por isso o
+                // overlay gravava as regras do jogo sob o pacote errado -- ver
+                // ForegroundAppTracker).
+                val currentPackage by foregroundTracker.currentPackage.collectAsState()
+                val overridesByPackage by overrideRepository.overridesByPackage.collectAsState()
+
                 // O Blur foi 100% removido do QuickAccessContent nas edições anteriores.
                 // Agora o Compose desenhará limpo e sem borrar a si mesmo.
                 QuickAccessContent(
@@ -75,6 +87,8 @@ class QuickAccessOverlay(
                     isDllReady = isDllReady,
                     performanceManager = performanceManager,
                     overrideRepository = overrideRepository,
+                    currentPackage = currentPackage,
+                    overridesByPackage = overridesByPackage,
                     onExpand = { setExpanded(true) },
                     onClose = { setExpanded(false) }
                 )
@@ -102,6 +116,14 @@ class QuickAccessOverlay(
                 }
             }
 
+            // A view nasce já com a visibilidade correta. Sem isto havia uma corrida real: o
+            // serviço chama `show()` no `onStartCommand` e `setHandleVisible(false)` na primeira
+            // emissão do tracker -- se a emissão chegasse primeiro, `host` ainda era null, o
+            // pedido para esconder perdia-se, e a barrinha nascia visível na home (o sintoma
+            // relatado).
+            newHost.composeView.visibility =
+                if (foregroundTracker.isGameForeground.value) View.VISIBLE else View.GONE
+
             try {
                 wm.addView(newHost.composeView, lp)
                 newHost.onResumed()
@@ -113,7 +135,7 @@ class QuickAccessOverlay(
 
     /**
      * Mostra/esconde o puxador lateral consoante haja ou não um jogo/app em primeiro plano (ver
-     * `GamingOverlayService.foregroundGameActive`). Não destrói a view -- só a esconde -- para
+     * `ForegroundAppTracker.isGameForeground`). Não destrói a view -- só a esconde -- para
      * reaparecer instantaneamente quando o jogo volta ao foreground, sem recriar toda a janela.
      * Ao esconder enquanto o painel está expandido, fecha-o primeiro (não faz sentido deixar o
      * painel aberto sobre a home/launcher).

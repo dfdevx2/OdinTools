@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,6 +50,21 @@ class AppOverrideRepository @Inject constructor(
 
     suspend fun upsert(entity: AppOverrideEntity) = withContext(Dispatchers.IO) {
         dao.save(entity)
+    }
+
+    /**
+     * Escrita "dispara e esquece", presa ao scope do repositório (singleton) em vez do scope de
+     * quem chama.
+     *
+     * Existe por causa de um caminho que perdia escritas em silêncio: o overlay gravava com
+     * `rememberCoroutineScope()`, que o Compose cancela assim que o painel sai da composição. A
+     * gravação de segurança feita no `onDispose` (o momento em que o painel fecha, ou em que o
+     * utilizador troca de jogo) era lançada exatamente nesse scope já cancelado -- ou seja, a
+     * última alteração feita antes de fechar o painel podia nunca chegar ao Room. Aqui a coroutine
+     * pertence ao repositório, que vive enquanto o processo viver.
+     */
+    fun upsertAsync(entity: AppOverrideEntity) {
+        repositoryScope.launch { dao.save(entity) }
     }
 
     suspend fun delete(packageName: String) = withContext(Dispatchers.IO) {

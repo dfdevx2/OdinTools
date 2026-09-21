@@ -13,6 +13,27 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!--
+        AUDITORIA DE SUPERFÍCIE EXPOSTA (componentes com android:exported="true")
+
+        Cada componente exportado abaixo tem de o ser, e está protegido:
+          * .main.MainActivity            — exportada por ser a atividade de arranque (LAUNCHER).
+          * .tiles.ControllerTileService  — exportada porque é o SystemUI que a liga; protegida
+          * .tiles.L2R2TileService          com android:permission="BIND_QUICK_SETTINGS_TILE",
+                                            que só o sistema possui.
+          * .service.ForegroundAppWatcherService — exportada porque é o sistema que a liga;
+                                            protegida com "BIND_ACCESSIBILITY_SERVICE".
+          * .tools.BootReceiver           — tem de ser exportado para receber BOOT_COMPLETED e
+                                            MY_PACKAGE_REPLACED, que vêm do system_server (UID
+                                            diferente; um receiver não exportado só recebe
+                                            broadcasts do próprio processo). Ambas as ações são
+                                            "protected broadcasts" — só o sistema as pode emitir —
+                                            e o onReceive valida na mesma intent.action antes de
+                                            fazer seja o que for.
+
+        Tudo o resto (GamingOverlayService, OdinHubService) está exportado="false" de propósito:
+        são arrancados só de dentro desta app.
+    -->
     <application
         android:name=".OdinToolsApplication"
         android:icon="@mipmap/ic_launcher"

@@ -67,6 +67,70 @@ import de.langerhans.odintools.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Transição entre as abas do ecrã principal.
+ *
+ * Antes: `slideInHorizontally(tween(300)) + fadeIn()` com deslocamento de uma largura inteira — o
+ * conteúdo entrava a atravessar o ecrã todo, a velocidade constante (o `tween` linear por
+ * omissão), o que lia como um "salto" brusco em vez de uma transição.
+ *
+ * Agora o deslocamento é curto (um quinto da largura) e feito com uma mola crítica — sem
+ * oscilação, mas com desaceleração natural no fim —, combinado com um leve zoom e um
+ * cross-fade rápido. O `SizeTransform(clip = false)` evita que o conteúdo da aba seja recortado
+ * enquanto as duas coexistem, que era o que fazia o texto "piscar" a meio da troca.
+ */
+private fun tabTransition(forward: Boolean): ContentTransform {
+    val offset: (Int) -> Int = { width -> (width / 5) * if (forward) 1 else -1 }
+    val outOffset: (Int) -> Int = { width -> (width / 5) * if (forward) -1 else 1 }
+
+    return (
+        slideInHorizontally(
+            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+            initialOffsetX = offset,
+        ) + fadeIn(animationSpec = tween(180)) +
+            scaleIn(initialScale = 0.96f, animationSpec = tween(220))
+        ) togetherWith (
+        slideOutHorizontally(
+            animationSpec = tween(180),
+            targetOffsetX = outOffset,
+        ) + fadeOut(animationSpec = tween(140))
+        ) using SizeTransform(clip = false)
+}
+
+/**
+ * Transição do vídeo de arranque para o ecrã inicial.
+ *
+ * Antes era um `Crossfade(tween(800))`: as duas imagens simplesmente atravessavam-se, e como o
+ * vídeo acaba num fotograma escuro, o resultado prático era o ecrã ficar quase preto durante quase
+ * um segundo antes de a interface aparecer — parecia que a app tinha travado.
+ *
+ * Agora o vídeo afasta-se (fade rápido com um ligeiro zoom para dentro) enquanto a interface entra
+ * a "assentar": começa 8% maior e ligeiramente acima, e desce até ao lugar com um `FastOutSlowIn`.
+ * O fade da interface arranca com um pequeno atraso para não competir com a saída do vídeo.
+ */
+private fun bootTransition(enteringHome: Boolean): ContentTransform {
+    if (!enteringHome) {
+        // Caminho inverso (voltar a ver o vídeo, via "rever intro"): simples e curto.
+        return fadeIn(animationSpec = tween(300)) togetherWith
+            fadeOut(animationSpec = tween(300)) using SizeTransform(clip = false)
+    }
+
+    return (
+        fadeIn(animationSpec = tween(durationMillis = 620, delayMillis = 140, easing = FastOutSlowInEasing)) +
+            scaleIn(
+                initialScale = 1.08f,
+                animationSpec = tween(durationMillis = 760, delayMillis = 140, easing = FastOutSlowInEasing),
+            ) +
+            slideInVertically(
+                animationSpec = tween(durationMillis = 760, delayMillis = 140, easing = FastOutSlowInEasing),
+                initialOffsetY = { height -> -(height / 24) },
+            )
+        ) togetherWith (
+        fadeOut(animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)) +
+            scaleOut(targetScale = 0.94f, animationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing))
+        ) using SizeTransform(clip = false)
+}
+
 @Composable
 fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrideList: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
@@ -127,7 +191,11 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         return
     }
 
-    Crossfade(targetState = showBootAnimation, animationSpec = tween(800), label = "BootTransition") { isBooting ->
+    AnimatedContent(
+        targetState = showBootAnimation,
+        transitionSpec = { bootTransition(enteringHome = !targetState) },
+        label = "BootTransition",
+    ) { isBooting ->
         if (isBooting) {
             VideoBootScreen(theme = finalTheme, onVideoEnded = { showBootAnimation = false; playSfx(R.raw.sfx_select) })
         } else {
@@ -159,7 +227,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 
                         AnimatedContent(
                             targetState = selectedTab,
-                            transitionSpec = { (slideInHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) width else -width } + fadeIn()) togetherWith (slideOutHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) -width else width } + fadeOut()) },
+                            transitionSpec = { tabTransition(targetState > initialState) },
                             modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 24.dp, top = 24.dp, bottom = 16.dp),
                             label = "tab_anim"
                         ) { targetTab ->
@@ -180,7 +248,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
 
                         AnimatedContent(
                             targetState = selectedTab,
-                            transitionSpec = { (slideInHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) width else -width } + fadeIn()) togetherWith (slideOutHorizontally(animationSpec = tween(300)) { width -> if (targetState > initialState) -width else width } + fadeOut()) },
+                            transitionSpec = { tabTransition(targetState > initialState) },
                             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
                             label = "tab_anim"
                         ) { targetTab ->

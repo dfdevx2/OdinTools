@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import de.langerhans.odintools.data.AppOverrideDao
+import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.tools.DeviceUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,7 @@ class AppOverrideListViewModel @Inject constructor(
     private val appOverrideDao: AppOverrideDao,
     private val appOverrideMapper: AppOverrideMapper,
     private val deviceUtils: DeviceUtils,
+    private val prefs: SharedPrefsRepo,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AppOverrideListUiModel())
@@ -27,6 +29,13 @@ class AppOverrideListViewModel @Inject constructor(
     private var existingOverrides = emptyList<String>()
 
     init {
+        // O tema escolhido pelo utilizador, para este ecrã deixar de ser o único com cores fixas.
+        // Lido no arranque do ViewModel (que é recriado a cada navegação para este ecrã), por isso
+        // uma mudança de tema feita em Settings já aparece aqui da próxima vez que se entra.
+        _uiState.update {
+            it.copy(selectedThemeIndex = prefs.selectedThemeIndex, useAmoledBlack = prefs.useAmoledBlack)
+        }
+
         viewModelScope.launch {
             appOverrideDao.getAll()
                 .flowOn(Dispatchers.IO)

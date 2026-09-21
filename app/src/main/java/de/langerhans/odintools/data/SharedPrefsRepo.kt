@@ -53,7 +53,9 @@ class SharedPrefsRepo @Inject constructor(
     var sgsrSharpness: Float get() = prefs.getFloat("sgsr_sharpness", 0.5f); set(value) = prefs.edit().putFloat("sgsr_sharpness", value).apply()
     var reshadeProfile: String get() = prefs.getString("reshade_profile", "Native") ?: "Native"; set(value) = prefs.edit().putString("reshade_profile", value).apply()
     var showFpsOverlay: Boolean get() = prefs.getBoolean("fps_overlay", false); set(value) = prefs.edit().putBoolean("fps_overlay", value).apply()
-    var currentForegroundApp: String get() = prefs.getString("current_foreground_app", "global") ?: "global"; set(value) = prefs.edit().putString("current_foreground_app", value).apply()
+    // `current_foreground_app` foi removido de propósito: guardar em disco qual o app em primeiro
+    // plano era a causa raiz do overlay gravar as regras do jogo sob o pacote errado (ver
+    // ForegroundAppTracker). Esse estado é do momento e vive agora só em memória, num StateFlow.
 
     // As antigas chaves soltas "override_<pkg>_*" (TDP/Clock/Fan/SGSR/LSFG/ReShade por jogo)
     // foram removidas: eram um armazenamento paralelo ao Room (AppOverrideEntity), lido só

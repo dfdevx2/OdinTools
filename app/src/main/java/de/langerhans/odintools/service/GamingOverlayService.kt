@@ -7,10 +7,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.overlay.QuickAccessOverlay
+import de.langerhans.odintools.tools.ForegroundAppTracker
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -29,27 +29,25 @@ class GamingOverlayService : Service() {
     @Inject
     lateinit var overrideRepository: AppOverrideRepository
 
+    // Quem diz ao overlay em que jogo estamos (e se deve sequer estar visível). Ver
+    // ForegroundAppTracker: é isto que faz a composição do overlay re-chavear por jogo, em vez
+    // de ficar presa ao pacote que estivesse gravado quando este serviço arrancou.
+    @Inject
+    lateinit var foregroundTracker: ForegroundAppTracker
+
     private var overlay: QuickAccessOverlay? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     companion object {
         // Canal de comunicação invisível com o ForegroundAppWatcherService
         val toggleOverlayFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-
-        // Bug reportado: com o overlay ativado, o puxador lateral ficava visível/ativo mesmo com
-        // a app inteiramente em segundo plano (na home, no launcher), aplicando perfis ao sistema
-        // todo. O ForegroundAppWatcherService escreve aqui sempre que deteta uma mudança de app em
-        // primeiro plano; `true` só quando é mesmo um jogo/app (nunca a home). Começa em `true`
-        // para não esconder o puxador em aparelhos onde o serviço de acessibilidade ainda não
-        // está ativado (comportamento antigo preservado até esse serviço reportar o contrário).
-        val foregroundGameActive = MutableStateFlow(true)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        overlay = QuickAccessOverlay(this, prefs, performanceManager, overrideRepository)
+        overlay = QuickAccessOverlay(this, prefs, performanceManager, overrideRepository, foregroundTracker)
 
         scope.launch {
             toggleOverlayFlow.collect {
@@ -57,8 +55,11 @@ class GamingOverlayService : Service() {
             }
         }
 
+        // Bug reportado: a barrinha aparecia em todo o sistema (home incluída), como se fosse um
+        // overlay global. Agora segue o tracker -- que arranca em `false` e só fica `true` dentro
+        // de um app de utilizador, igual aos "modos game" dos telemóveis.
         scope.launch {
-            foregroundGameActive.collect { active ->
+            foregroundTracker.isGameForeground.collect { active ->
                 overlay?.setHandleVisible(active)
             }
         }

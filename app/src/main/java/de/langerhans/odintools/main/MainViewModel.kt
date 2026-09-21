@@ -21,6 +21,7 @@ import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import javax.inject.Inject
+
+/**
+ * Janela de espera antes de aplicar ao hardware um valor arrastado num slider -- ver o comentário
+ * em `updateTdp`. O mesmo valor é usado no overlay (QuickAccessContent).
+ */
+private const val LIVE_APPLY_DEBOUNCE_MS = 70L
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -158,21 +165,29 @@ class MainViewModel @Inject constructor(
     // `exec` root SÍNCRONO, e eram chamados diretamente na callback de UI do Compose
     // (`onValueChange`, disparado dezenas de vezes por segundo durante o arrasto) -- cada chamada
     // bloqueava a thread principal até o `su` terminar. Movido para `viewModelScope` em
-    // `Dispatchers.IO`, cancelando o job anterior antes de lançar o novo para não empilhar
-    // escritas root concorrentes enquanto o dedo ainda arrasta -- só a mais recente chega a correr.
+    // `Dispatchers.IO`, cancelando o job anterior antes de lançar o novo.
+    //
+    // O `delay` à frente da escrita é o que dá sentido ao cancelamento: `applyDynamicTdp` é
+    // bloqueante e não tem pontos de suspensão, portanto cancelar um job que já começou a
+    // escrever não o interrompe. Com a janela de espera, o job anterior morre ainda dentro do
+    // `delay` -- só o último valor do arrasto chega mesmo ao root.
     private var tdpJob: Job? = null
     private var clockJob: Job? = null
 
     fun updateTdp(watts: Float) {
         _uiState.update { it.copy(tdpValue = watts) }
         tdpJob?.cancel()
-        tdpJob = viewModelScope.launch(Dispatchers.IO) { performanceManager.applyDynamicTdp(watts) }
+        tdpJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(LIVE_APPLY_DEBOUNCE_MS)
+            performanceManager.applyDynamicTdp(watts)
+        }
     }
 
     fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
         _uiState.update { it.copy(cpuPerfClock = perfClock, cpuPrimeClock = primeClock, gpuClock = gpuClock) }
         clockJob?.cancel()
         clockJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(LIVE_APPLY_DEBOUNCE_MS)
             performanceManager.applyAbsoluteClocks((perfClock * 1000).toLong(), (primeClock * 1000).toLong(), (gpuClock * 1000000).toLong())
         }
     }

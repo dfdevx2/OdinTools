@@ -30,12 +30,58 @@ abstract class AppDatabase : RoomDatabase() {
          */
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE appoverride ADD COLUMN limitMode TEXT NOT NULL DEFAULT 'TDP'")
-                db.execSQL("ALTER TABLE appoverride ADD COLUMN tdpWatts REAL")
-                db.execSQL("ALTER TABLE appoverride ADD COLUMN perfClockKHz INTEGER")
-                db.execSQL("ALTER TABLE appoverride ADD COLUMN primeClockKHz INTEGER")
-                db.execSQL("ALTER TABLE appoverride ADD COLUMN gpuClockHz INTEGER")
-                db.execSQL("ALTER TABLE appoverride ADD COLUMN fanSettingsValue INTEGER")
+                // Lê as colunas que a tabela REALMENTE tem, em vez de assumir o formato da v4.
+                //
+                // Porquê: não existe schema exportado das versões 3 e 4 (o `exportSchema` estava
+                // desligado até agora, e a pasta `schemas/` só tem 1.json e 2.json -- onde a
+                // tabela ainda era outra coisa: controllerStyle/l2R2Style/perfMode/fanMode). Ou
+                // seja, ninguém consegue verificar que forma tinha a v4. Um `ALTER TABLE ADD
+                // COLUMN` para uma coluna que já existe falha, e uma coluna da entidade que
+                // faltasse deixaria o schema diferente do esperado -- nesse caso o Room lança ao
+                // abrir a base de dados, e o `fallbackToDestructiveMigration` NÃO salva, porque
+                // só cobre saltos de versão sem migração, não uma migração que correu e deixou o
+                // schema errado. Resultado prático: a app crashava ao abrir depois de atualizar.
+                //
+                // Adicionando apenas o que falta, esta migração funciona a partir de qualquer
+                // variante da v4 e não depende de um histórico que não temos.
+                val existing = mutableSetOf<String>()
+                db.query("PRAGMA table_info(appoverride)").use { cursor ->
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) {
+                        existing += cursor.getString(nameIndex)
+                    }
+                }
+
+                fun addIfMissing(column: String, definition: String) {
+                    if (column !in existing) {
+                        db.execSQL("ALTER TABLE appoverride ADD COLUMN $definition")
+                    }
+                }
+
+                // Colunas introduzidas na v5 (valores numéricos reais + modo de limitação).
+                addIfMissing("limitMode", "limitMode TEXT NOT NULL DEFAULT 'TDP'")
+                addIfMissing("tdpWatts", "tdpWatts REAL")
+                addIfMissing("perfClockKHz", "perfClockKHz INTEGER")
+                addIfMissing("primeClockKHz", "primeClockKHz INTEGER")
+                addIfMissing("gpuClockHz", "gpuClockHz INTEGER")
+                addIfMissing("fanSettingsValue", "fanSettingsValue INTEGER")
+
+                // Colunas que se assumia já existirem na v4. Se existirem, isto não faz nada; se
+                // não existirem, é o que evita o crash descrito acima.
+                addIfMissing("tdpProfile", "tdpProfile TEXT")
+                addIfMissing("clockProfile", "clockProfile TEXT")
+                addIfMissing("fanProfile", "fanProfile TEXT")
+                addIfMissing("lsfgEnabled", "lsfgEnabled INTEGER NOT NULL DEFAULT 0")
+                addIfMissing("lsfgMultiplier", "lsfgMultiplier INTEGER NOT NULL DEFAULT 2")
+                addIfMissing("lsfgPerformanceMode", "lsfgPerformanceMode INTEGER NOT NULL DEFAULT 0")
+                addIfMissing("lsfgFramePacing", "lsfgFramePacing INTEGER NOT NULL DEFAULT 1")
+                addIfMissing("lsfgQuality", "lsfgQuality REAL NOT NULL DEFAULT 1.0")
+                addIfMissing("sgsrEnabled", "sgsrEnabled INTEGER NOT NULL DEFAULT 0")
+                addIfMissing("sgsrMode", "sgsrMode TEXT NOT NULL DEFAULT 'Quality'")
+                addIfMissing("sgsrSharpness", "sgsrSharpness REAL NOT NULL DEFAULT 0.5")
+                addIfMissing("reshadeProfile", "reshadeProfile TEXT NOT NULL DEFAULT 'Nenhum'")
+                addIfMissing("saturationOverride", "saturationOverride REAL NOT NULL DEFAULT 1.0")
+                addIfMissing("temperatureOverride", "temperatureOverride REAL NOT NULL DEFAULT 6500.0")
             }
         }
     }

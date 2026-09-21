@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,13 +26,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import de.langerhans.odintools.data.AppOverrideEntity
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
+import de.langerhans.odintools.models.AppOverrideLabels
 import de.langerhans.odintools.models.FanMode
+import de.langerhans.odintools.tools.ForegroundAppTracker
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import de.langerhans.odintools.ui.theme.ConsoleTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * Janela de espera antes de escrever um valor arrastado no slider para o hardware. Curta o
+ * suficiente para continuar a parecer instantânea, longa o suficiente para que os valores
+ * intermédios de um arrasto sejam descartados por cancelamento antes de chegarem ao root.
+ */
+private const val LIVE_APPLY_DEBOUNCE_MS = 70L
 
 @Composable
 fun QuickAccessContent(
@@ -41,6 +52,12 @@ fun QuickAccessContent(
     isDllReady: Boolean,
     performanceManager: PerformanceManager,
     overrideRepository: AppOverrideRepository,
+    // Jogo atualmente em primeiro plano e o mapa vivo de regras por jogo, ambos observados em
+    // QuickAccessOverlay a partir de StateFlows. São parâmetros (e não leituras diretas de
+    // SharedPreferences, como antes) precisamente para esta composição re-chavear quando o
+    // utilizador troca de jogo -- ver ForegroundAppTracker.
+    currentPackage: String,
+    overridesByPackage: Map<String, AppOverrideEntity>,
     onExpand: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -70,6 +87,8 @@ fun QuickAccessContent(
                     isDllReady = isDllReady,
                     performanceManager = performanceManager,
                     overrideRepository = overrideRepository,
+                    currentPackage = currentPackage,
+                    overridesByPackage = overridesByPackage,
                     panelOpacity = panelOpacity,
                     onOpacityChange = { panelOpacity = it; prefs.overlayPanelOpacity = it },
                     onClose = onClose
@@ -92,6 +111,17 @@ fun QuickAccessContent(
     }
 }
 
+/**
+ * Painel expandido do overlay.
+ *
+ * Sobre o [performanceManager] recebido de fora (e não criado aqui): esta função instanciava o seu
+ * PRÓPRIO `PerformanceManager(ShellExecutor())`, à parte do singleton do Hilt que o
+ * MainViewModel/ForegroundAppWatcherService/OdinHubService usam. Como o PerformanceManager corre um
+ * daemon que reescreve os clocks a cada segundo a partir do seu próprio estado, existiam DOIS
+ * daemons a competir pelos mesmos nós de sysfs: o valor ajustado aqui "colava" por um instante e
+ * era logo sobrescrito pelo outro daemon no tick seguinte — o sintoma "os valores mudam mas não
+ * fixam de forma fiável".
+ */
 @Composable
 private fun QuickAccessPanel(
     theme: ConsoleTheme,
@@ -99,42 +129,48 @@ private fun QuickAccessPanel(
     isDllReady: Boolean,
     performanceManager: PerformanceManager,
     overrideRepository: AppOverrideRepository,
+    currentPackage: String,
+    overridesByPackage: Map<String, AppOverrideEntity>,
     panelOpacity: Float,
     onOpacityChange: (Float) -> Unit,
     onClose: () -> Unit
 ) {
-    // CAUSA RAIZ (auditoria): esta função criava a sua PRÓPRIA instância de PerformanceManager
-    // (`remember { PerformanceManager(ShellExecutor()) }`), completamente à parte do singleton
-    // gerido pelo Hilt que o MainViewModel/ForegroundAppWatcherService/OdinHubService usam.
-    // Como PerformanceManager arranca um daemon em segundo plano que reescreve os clocks a cada
-    // 1s a partir do seu PRÓPRIO estado interno, isto criava DOIS daemons independentes a
-    // competir pelos mesmos nós de sysfs: sempre que o utilizador ajustava o TDP/clocks no
-    // overlay (o painel que se usa a meio do jogo — o caso de uso mais crítico), a escrita
-    // "colava" por um instante e depois era imediatamente sobrescrita pelo outro daemon (o
-    // singleton "oficial", com o seu próprio estado desatualizado) no tick seguinte. Isto
-    // explica exatamente o sintoma "os valores mudam mas não fixam de forma fiável". A correção
-    // é receber o singleton injetado (ver GamingOverlayService/QuickAccessOverlay) em vez de
-    // instanciar um novo.
-    val currentApp = prefs.currentForegroundApp
+    // CAUSA RAIZ do bug relatado "o overlay e o banco de dados não estão interconectados":
+    // isto era `val currentApp = prefs.currentForegroundApp` -- uma leitura única de
+    // SharedPreferences, que o Compose não observa. Como a ComposeView do overlay é criada uma só
+    // vez (GamingOverlayService.onCreate) e nada aqui dentro mudava, `currentApp` ficava
+    // congelado no valor de arranque (normalmente "global"). O utilizador abria o GTA, punha 5 W,
+    // e a regra era gravada no Room sob esse pacote errado -- por isso o ecrã "Per-App Overrides"
+    // nunca mostrava nada para o GTA. Agora chega como parâmetro, vindo de um StateFlow observado
+    // (ver ForegroundAppTracker), e todos os `remember(currentApp)` abaixo voltam a fazer sentido:
+    // ao trocar de jogo, o painel recarrega-se com os valores daquele jogo.
+    val currentApp = currentPackage
     val scope = rememberCoroutineScope()
 
     // CAUSA RAIZ do lag/travamento ao arrastar o slider de TDP ou trocar de preset de clock
     // rapidamente: `performanceManager.applyDynamicTdp`/`applyAbsoluteClocks` fazem um `exec`
     // root SÍNCRONO (bloqueante) por chamada. Um `Slider.onValueChange` dispara dezenas de vezes
     // por segundo durante o arrasto -- cada uma bloqueando a thread de UI do Compose até o `su`
-    // terminar, daí o "trava mesmo". `applyTdpLive`/`applyClocksLive` abaixo movem essa escrita
-    // para uma coroutine em Dispatchers.IO E cancelam o job anterior antes de lançar o novo, para
-    // não empilhar dezenas de `setprop`/escritas de sysfs concorrentes na fila do root enquanto o
-    // dedo ainda está a arrastar -- só a escrita mais recente chega a correr.
+    // terminar, daí o "trava mesmo". As funções abaixo movem a escrita para Dispatchers.IO.
+    //
+    // O `delay` antes da escrita não é cosmético, é o que torna o cancelamento eficaz: como
+    // `applyDynamicTdp` é bloqueante e não tem pontos de suspensão, cancelar um job que JÁ entrou
+    // na escrita não a interrompe. Com uma janela de espera à frente, o job anterior é cancelado
+    // ainda dentro do `delay` e nunca chega a escrever -- só o último valor do arrasto vai ao
+    // root, em vez de dezenas de escritas concorrentes a competir na mesma fila.
     var tdpJob by remember { mutableStateOf<Job?>(null) }
     var clockJob by remember { mutableStateOf<Job?>(null) }
     fun applyTdpLive(watts: Float) {
         tdpJob?.cancel()
-        tdpJob = scope.launch(Dispatchers.IO) { performanceManager.applyDynamicTdp(watts) }
+        tdpJob = scope.launch(Dispatchers.IO) {
+            delay(LIVE_APPLY_DEBOUNCE_MS)
+            performanceManager.applyDynamicTdp(watts)
+        }
     }
     fun applyClocksLive(perfMHz: Float, primeMHz: Float, gpuMHz: Float) {
         clockJob?.cancel()
         clockJob = scope.launch(Dispatchers.IO) {
+            delay(LIVE_APPLY_DEBOUNCE_MS)
             performanceManager.applyAbsoluteClocks((perfMHz * 1000).toLong(), (primeMHz * 1000).toLong(), (gpuMHz * 1_000_000).toLong())
         }
     }
@@ -146,7 +182,11 @@ private fun QuickAccessPanel(
     // ambos leem/escrevem o mesmo AppOverrideRepository (Room). `remember(currentApp)` garante
     // que, se o overlay ficar aberto e o utilizador trocar de jogo, o estado é recarregado para
     // o jogo novo em vez de continuar a mostrar valores do jogo anterior.
-    val existingOverride = remember(currentApp) { overrideRepository.get(currentApp) }
+    //
+    // Lido do mapa VIVO do repositório (e não de um `get()` em cache no `remember`): assim, uma
+    // regra criada/alterada no ecrã "Per-App Overrides" já aparece aqui da próxima vez que o
+    // painel compõe para aquele jogo -- o sentido "banco -> overlay" da parceria que faltava.
+    val existingOverride = overridesByPackage[currentApp]
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -181,7 +221,23 @@ private fun QuickAccessPanel(
     // arrasto de slider, para não martelar o Room -- e também no onDispose, como rede de
     // segurança para quando o painel fecha de forma inesperada (troca de app, serviço morto),
     // que era o único momento em que o código anterior gravava alguma coisa.
+    // Só criamos/atualizamos a regra deste jogo se o utilizador mexer mesmo em alguma coisa.
+    // Sem isto, bastava abrir e fechar o painel para o jogo passar a ter uma regra própria --
+    // uma fotografia dos valores GLOBAIS do momento -- que a partir daí deixava de acompanhar
+    // qualquer alteração global, além de encher a lista de "Regras por jogo" com entradas que o
+    // utilizador nunca pediu.
+    var touchedByUser by remember(currentApp) { mutableStateOf(false) }
+
     fun persistOverride() {
+        touchedByUser = true
+        // Guarda: nunca gravar uma regra para "nenhum app" (ForegroundAppTracker.GLOBAL) nem para
+        // um pacote vazio. Era exatamente isto que acontecia antes -- as regras do jogo acabavam
+        // numa linha "global" que nenhum ecrã mostrava. Se o painel for aberto fora de um app (o
+        // que já não deve acontecer, porque a barrinha fica escondida), as alterações continuam a
+        // valer para a sessão atual, mas não inventamos uma regra por app.
+        if (currentApp.isBlank() || currentApp == ForegroundAppTracker.GLOBAL) return
+
+        val isTdpMode = activeLimitMode == "TDP"
         val entity = AppOverrideEntity(
             packageName = currentApp,
             limitMode = activeLimitMode,
@@ -190,9 +246,13 @@ private fun QuickAccessPanel(
             primeClockKHz = (cpuPrimeClock * 1000).toLong(),
             gpuClockHz = (gpuClock * 1_000_000).toLong(),
             fanSettingsValue = fanMode,
-            tdpProfile = existingOverride?.tdpProfile,
-            clockProfile = existingOverride?.clockProfile,
-            fanProfile = existingOverride?.fanProfile,
+            // Rótulos calculados com o MESMO helper que o ecrã "Per-App Overrides" usa
+            // (AppOverrideLabels). Antes o overlay propagava `existingOverride?.tdpProfile`, que
+            // é null numa regra recém-criada em jogo -- e a lista de jogos mostrava a entrada sem
+            // subtítulo nenhum, como se a regra estivesse vazia.
+            tdpProfile = if (isTdpMode) AppOverrideLabels.tdpLabel(tdpValue) else "Stock",
+            clockProfile = if (!isTdpMode) AppOverrideLabels.clockLabel(cpuPerfClock, cpuPrimeClock) else "Stock",
+            fanProfile = AppOverrideLabels.fanLabel(fanMode),
             lsfgEnabled = lsfgEnabled,
             lsfgMultiplier = lsfgMultiplier.replace("x", "").toIntOrNull() ?: 2,
             lsfgPerformanceMode = lsfgPerfMode,
@@ -210,16 +270,39 @@ private fun QuickAccessPanel(
             saturationOverride = existingOverride?.saturationOverride ?: prefs.saturationOverride,
             temperatureOverride = existingOverride?.temperatureOverride ?: prefs.temperatureOverride,
         )
-        scope.launch { overrideRepository.upsert(entity) }
+        // Escrita no scope do repositório, não no do Compose: ver AppOverrideRepository.upsertAsync
+        // -- a gravação feita no `onDispose` (painel a fechar / troca de jogo) caía num scope já
+        // cancelado e perdia-se.
+        overrideRepository.upsertAsync(entity)
     }
 
+    // Rede de segurança: grava o estado final quando o painel fecha ou o utilizador troca de jogo
+    // (por exemplo, se o painel morrer a meio de um arrasto de slider, antes do
+    // `onValueChangeFinished`). Condicional, para não inventar regras -- ver `touchedByUser`.
     DisposableEffect(currentApp) {
-        onDispose { persistOverride() }
+        onDispose { if (touchedByUser) persistOverride() }
+    }
+
+    // Nome legível do jogo em primeiro plano, para o utilizador ver claramente A QUE JOGO estas
+    // configurações pertencem -- reforça que o painel é por app, e não um controlo global.
+    val context = LocalContext.current
+    val currentAppLabel = remember(currentApp) {
+        runCatching {
+            val pm = context.packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(currentApp, 0)).toString()
+        }.getOrDefault(currentApp)
     }
 
     Column(modifier = Modifier.padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("ODIN HUB", color = theme.primary, fontWeight = FontWeight.Black, fontSize = 18.sp, letterSpacing = 1.sp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text("ODIN HUB", color = theme.primary, fontWeight = FontWeight.Black, fontSize = 18.sp, letterSpacing = 1.sp)
+                Text(
+                    text = if (currentApp == ForegroundAppTracker.GLOBAL) "Perfil global" else "Perfil de $currentAppLabel",
+                    color = theme.text.copy(alpha = 0.6f),
+                    fontSize = 10.sp,
+                )
+            }
             Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(theme.surface.copy(alpha = 0.6f)).clickable { onClose() }, contentAlignment = Alignment.Center) {
                 Text("✕", color = theme.text, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }

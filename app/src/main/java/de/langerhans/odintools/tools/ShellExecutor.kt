@@ -19,6 +19,30 @@ import javax.inject.Singleton
 class PServerTransactionRejectedException(cmd: String) :
     IllegalStateException("PServer rejeitou a transação (transact()==false) para: $cmd")
 
+/**
+ * Lançada quando um valor destinado a um comando root contém caracteres que o shell interpretaria
+ * (`;`, `|`, `&`, `$`, backtick, redirecionamentos, nova linha...).
+ *
+ * Hoje todos os valores que chegam aqui vêm de sliders com `coerceIn` ou de constantes do código,
+ * por isso não há nenhuma injeção possível na prática. Isto existe como rede de segurança para o
+ * futuro: os comandos são montados por concatenação de strings e executados com privilégios de
+ * root, portanto basta um único campo de texto livre novo chegar a um `echo ... > /sys/...` para
+ * isto passar de teórico a real. Falhar de forma barulhenta numa escrita legítima é muito
+ * preferível a executar silenciosamente algo que o utilizador não pediu.
+ */
+class UnsafeShellValueException(value: String) :
+    IllegalArgumentException("Valor recusado por conter metacaracteres de shell: $value")
+
+/**
+ * Caracteres que dão ao shell um significado para além de "texto": encadeamento de comandos,
+ * substituição, redirecionamento e quebras de linha.
+ */
+private val SHELL_METACHARACTERS = charArrayOf(
+    ';', '|', '&', '$', '`', '>', '<', '(', ')', '{', '}', '\n', '\r', '\\', '"', '\'', '*', '?', '[', ']', '!', '~', '#',
+)
+
+private fun String.containsShellMetacharacters(): Boolean = any { it in SHELL_METACHARACTERS }
+
 @Singleton
 @SuppressLint("DiscouragedPrivateApi", "PrivateApi")
 class ShellExecutor @Inject constructor() {
@@ -118,7 +142,28 @@ class ShellExecutor @Inject constructor() {
     }
 
     fun setStringSystemSetting(setting: String, value: String) {
+        if (!isSafeForCommand(setting, value)) return
         executeAsRoot("settings put system $setting $value")
+    }
+
+    /**
+     * Valida os fragmentos que vão ser concatenados num comando executado como root.
+     *
+     * Os comandos aqui são montados por interpolação de strings (`"echo $value > $file"`), o que
+     * é seguro enquanto tudo o que entra vier de sliders com `coerceIn` e de constantes — o caso
+     * de hoje. Assim que um campo de texto livre chegar a um destes caminhos, passa a ser
+     * injeção de shell com privilégios de root. Em vez de confiar que isso nunca vai acontecer,
+     * recusamos o comando e registamos o motivo: uma escrita perdida é um bug visível e fácil de
+     * diagnosticar; um comando injetado executado como root, não.
+     */
+    private fun isSafeForCommand(vararg fragments: String): Boolean {
+        fragments.forEach { fragment ->
+            if (fragment.containsShellMetacharacters()) {
+                Log.e(TAG, "Comando recusado", UnsafeShellValueException(fragment))
+                return false
+            }
+        }
+        return true
     }
 
     fun getIntSystemSetting(setting: String, defaultValue: Int): Int {
@@ -152,6 +197,9 @@ class ShellExecutor @Inject constructor() {
     }
 
     fun setStringValue(file: String, value: String) {
+        // `file` é validado tal como o valor: apesar de hoje vir sempre de constantes
+        // (SettingsRepo.KEY_*), é ele que fecha a interpolação `echo ... > $file`.
+        if (!isSafeForCommand(file, value)) return
         executeAsRoot("echo $value > $file")
     }
 

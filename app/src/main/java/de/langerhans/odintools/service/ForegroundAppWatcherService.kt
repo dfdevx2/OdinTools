@@ -1,15 +1,23 @@
 package de.langerhans.odintools.service
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import dagger.hilt.android.AndroidEntryPoint
+import de.langerhans.odintools.data.AppOverrideEntity
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.models.FanMode
+import de.langerhans.odintools.tools.ForegroundAppTracker
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -24,14 +32,40 @@ class ForegroundAppWatcherService : AccessibilityService() {
     // Performance -> Per-App Overrides (que só gravava na tabela Room, nunca lida aqui).
     @Inject lateinit var overrideRepository: AppOverrideRepository
 
+    // Fonte única de verdade, reativa, de "que app está à frente" -- o overlay observa o mesmo
+    // objeto, por isso a sua composição re-chaveia sozinha a cada troca de jogo. Ver
+    // ForegroundAppTracker para o porquê de isto ter deixado de ser um `prefs.getString`.
+    @Inject lateinit var foregroundTracker: ForegroundAppTracker
+
     private var currentApp = ""
 
-    // Pacote do launcher/home do aparelho -- resolvido uma única vez. Precisamos disto para
-    // distinguir "estou dentro de um jogo" de "voltei para a home", já que a home também dispara
-    // TYPE_WINDOW_STATE_CHANGED como qualquer outra app.
-    private val launcherPackage: String by lazy {
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName ?: ""
+    /**
+     * `onAccessibilityEvent` corre na thread principal do serviço, e aplicar um perfil faz várias
+     * escritas root bloqueantes (ver ShellExecutor/PServerBinder). Fazer isso de forma síncrona
+     * aqui trava a entrega de eventos de acessibilidade ao sistema -- o mesmo tipo de erro que
+     * causou o congelamento na splash screen e o lag dos sliders. Cada troca de app cancela a
+     * aplicação anterior: ao passar rápido por várias apps, só o perfil da app em que realmente
+     * ficámos chega a ser escrito.
+     */
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var applyJob: Job? = null
+
+    /**
+     * O tracker arranca a dizer "nenhum app em primeiro plano" (e portanto com o puxador do
+     * overlay escondido), à espera do primeiro `TYPE_WINDOW_STATE_CHANGED`. Se o serviço for
+     * ligado com um jogo já aberto — ou se for reiniciado pelo sistema durante o jogo — esse
+     * evento pode demorar a chegar, e o overlay ficaria escondido dentro do jogo sem razão.
+     * Aqui semeamos o estado inicial com a janela que já está ativa.
+     */
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        val pkg = runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull() ?: return
+        currentApp = pkg
+        val isUserApp = foregroundTracker.onForegroundPackage(pkg)
+        applyJob?.cancel()
+        applyJob = scope.launch {
+            applyProfile(if (isUserApp) overrideRepository.get(pkg) else null)
+        }
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -46,31 +80,45 @@ class ForegroundAppWatcherService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val pkg = event.packageName?.toString() ?: return
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
-            if (pkg == currentApp || pkg.contains("odintools") || pkg.contains("systemui")) return
+        val pkg = event.packageName?.toString() ?: return
+        if (pkg == currentApp) return
+        currentApp = pkg
 
-            currentApp = pkg
-            prefs.currentForegroundApp = pkg
+        // O tracker decide se isto é mesmo um app de utilizador (e publica o pacote + a
+        // visibilidade do puxador do overlay). Antes, esta decisão era `pkg != launcherPackage`
+        // mais um filtro `pkg.contains("odintools")` que nunca batia com o applicationId real
+        // (`com.dfdx047.odinhub`) -- por isso o overlay aparecia por cima da própria app e de
+        // ecrãs do sistema. Ver ForegroundAppTracker.isTrackableApp.
+        val isUserApp = foregroundTracker.onForegroundPackage(pkg)
 
-            // Bug reportado: com o overlay ativado, ele ficava visível mesmo fora de jogos
-            // (inclusive na home/launcher). A partir daqui só publicamos o puxador do overlay
-            // como ativo quando o foreground é mesmo um jogo/app -- nunca a nossa própria app,
-            // a home ou a systemui.
-            val isRealGame = pkg != launcherPackage
-            GamingOverlayService.foregroundGameActive.value = isRealGame
+        applyJob?.cancel()
+        applyJob = scope.launch {
+            // A espera é o que torna o cancelamento acima eficaz: as funções de aplicação são
+            // bloqueantes e sem pontos de suspensão, por isso cancelar um job que já começou a
+            // escrever não o pára. Com esta janela, ao atravessar vários ecrãs seguidos só o
+            // perfil da app onde realmente ficámos chega a ser escrito no hardware.
+            delay(APPLY_DEBOUNCE_MS)
 
-            applySteamDeckLogic(pkg)
+            if (isUserApp) {
+                // Regra do jogo, ou os valores globais quando o jogo ainda não tem regra própria.
+                applyProfile(overrideRepository.get(pkg))
+            } else {
+                // Saímos de um jogo para a home/sistema/própria app: devolvemos o aparelho ao
+                // perfil GLOBAL. Sem isto, o limite do último jogo continuava a valer para o
+                // sistema inteiro -- exatamente o "ele fica controlando o sistema inteiro" que
+                // foi relatado. As regras por app só valem dentro do app a que pertencem.
+                applyProfile(null)
+            }
         }
     }
 
-    private fun applySteamDeckLogic(pkg: String) {
-        // Lê o cache em memória do repositório (nunca bloqueia este thread em I/O de disco).
-        // `override` é null quando o jogo não tem regra própria -- nesse caso cai sempre para
-        // os valores globais, exatamente como antes.
-        val override = overrideRepository.get(pkg)
-
+    /**
+     * Aplica um perfil ao hardware. `override == null` significa "usa os valores globais"
+     * (ecrã de Settings), que é também o estado para onde voltamos ao sair de um jogo.
+     */
+    private fun applyProfile(override: AppOverrideEntity?) {
         // 1. TDP ou Clocks -- MUTUAMENTE EXCLUSIVOS. limitMode é por jogo (override?.limitMode);
         // sem override, usa o modo global (prefs.activeLimitMode), igual ao ecrã de Settings.
         val limitMode = override?.limitMode ?: prefs.activeLimitMode
@@ -105,4 +153,14 @@ class ForegroundAppWatcherService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scope.cancel()
+    }
+
+    private companion object {
+        /** Ver o comentário em `onAccessibilityEvent` sobre por que existe esta espera. */
+        const val APPLY_DEBOUNCE_MS = 120L
+    }
 }

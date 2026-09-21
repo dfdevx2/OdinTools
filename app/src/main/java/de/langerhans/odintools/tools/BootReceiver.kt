@@ -3,6 +3,7 @@ package de.langerhans.odintools.tools
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.service.GamingOverlayService
@@ -65,11 +66,26 @@ class BootReceiver : BroadcastReceiver() {
                 VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
 
                 if (prefs.overlayEnabled) {
-                    context.startService(Intent(context, GamingOverlayService::class.java))
+                    // A partir do Android O, arrancar um serviço a partir de um processo em
+                    // segundo plano (que é o caso aqui, no arranque do sistema) lança
+                    // IllegalStateException. Como isto corre dentro do `goAsync` de um receiver,
+                    // uma exceção não apanhada derrubava o processo -- o mesmo tipo de falha que
+                    // já causou o "fica preso no logo" desta app. O overlay não é crítico ao
+                    // arranque: volta a ficar disponível assim que o utilizador abrir a app (ver
+                    // MainViewModel), por isso registamos e seguimos.
+                    runCatching {
+                        context.startService(Intent(context, GamingOverlayService::class.java))
+                    }.onFailure {
+                        Log.w(TAG, "Overlay não pôde arrancar no boot (será iniciado ao abrir a app)", it)
+                    }
                 }
             } finally {
                 pendingResult.finish()
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "BootReceiver"
     }
 }

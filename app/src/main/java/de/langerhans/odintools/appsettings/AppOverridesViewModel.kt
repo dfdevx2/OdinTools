@@ -9,26 +9,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import de.langerhans.odintools.data.AppOverrideEntity
 import de.langerhans.odintools.data.AppOverrideRepository
-import de.langerhans.odintools.models.ClusterClockPresets
-import de.langerhans.odintools.models.CombinedClockProfiles
+import de.langerhans.odintools.data.SharedPrefsRepo
+import de.langerhans.odintools.models.AppOverrideLabels
 import de.langerhans.odintools.models.FanMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-/**
- * Perfis de TDP nomeados usados por este ecrã -- os MESMOS valores (5/10/15/25 W) que o overlay
- * (`QuickAccessContent.tdpProfiles`) e o painel global de Settings usam para "Power Save" /
- * "Balanced" / "Triple A" / "Stock". Mantidos aqui em vez de duplicados nesses dois ficheiros
- * seria o ideal a longo prazo, mas para já replicamos os MESMOS números de propósito: o objetivo
- * desta ronda é que os três ecrãs concordem sempre no que cada nome de perfil significa em watts
- * reais -- o bug original (Parte 2 da auditoria) era precisamente perfis com o mesmo nome a
- * significarem coisas diferentes (ou nada) em cada ecrã.
- */
-private val NAMED_TDP_PROFILES = listOf("Power Save" to 5f, "Balanced" to 10f, "Triple A" to 15f, "Stock" to 25f)
 
 data class AppOverrideUiState(
     val packageName: String = "",
@@ -62,7 +53,12 @@ data class AppOverrideUiState(
     val temperatureOverride: Float = 6500f,
 
     val isSaved: Boolean = false,
-    val availableReshadeProfiles: List<String> = listOf("Native", "Vibrant", "Retro", "HDR Boost", "Game Clarity", "Cinematic")
+    val availableReshadeProfiles: List<String> = listOf("Native", "Vibrant", "Retro", "HDR Boost", "Game Clarity", "Cinematic"),
+
+    // Tema ativo da app (ver ui/theme/Theme.kt) -- este ecrã usava cores fixas e destoava
+    // completamente do resto da aplicação.
+    val selectedThemeIndex: Int = 0,
+    val useAmoledBlack: Boolean = false,
 )
 
 @HiltViewModel
@@ -72,18 +68,33 @@ class AppOverrideViewModel @Inject constructor(
     // AppOverrideRepository) -- este ecrã e o overlay passam a ser "parceiros" na mesma linha do
     // Room em vez de dois caminhos de escrita desligados um do outro.
     private val overrideRepository: AppOverrideRepository,
+    private val prefs: SharedPrefsRepo,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AppOverrideUiState())
     val uiState: StateFlow<AppOverrideUiState> = _uiState.asStateFlow()
 
+    /**
+     * Passa a `true` no primeiro toque do utilizador neste ecrã. A partir daí, [observeOverride]
+     * deixa de aplicar emissões do Room — caso contrário, uma escrita feita noutro sítio (por
+     * exemplo o overlay, se o jogo estiver aberto por trás) apagaria por baixo as alterações que
+     * o utilizador ainda não guardou.
+     */
+    private var userHasEdited = false
+
     init {
         val packageName = savedStateHandle.get<String>("packageName") ?: ""
-        _uiState.update { it.copy(packageName = packageName) }
+        _uiState.update {
+            it.copy(
+                packageName = packageName,
+                selectedThemeIndex = prefs.selectedThemeIndex,
+                useAmoledBlack = prefs.useAmoledBlack,
+            )
+        }
 
         loadAppDetails(packageName)
-        loadOverride(packageName)
+        observeOverride(packageName)
     }
 
     private fun loadAppDetails(packageName: String) {
@@ -98,12 +109,32 @@ class AppOverrideViewModel @Inject constructor(
     }
 
     /**
-     * Lê do cache em memória do repositório -- o MESMO valor que o overlay/ForegroundAppWatcherService
-     * veem. Se o utilizador tiver acabado de configurar este jogo pelo overlay, este ecrã já abre
-     * com esses valores em vez de "Nenhum"/valores por omissão.
+     * Observa a regra deste jogo no repositório -- a MESMA que o overlay escreve.
+     *
+     * BUG QUE ISTO CORRIGE: antes era um `overrideRepository.get(packageName)` único. Esse `get`
+     * lê o cache em memória do repositório, que é um `stateIn(..., Eagerly, emptyMap())`
+     * alimentado por um Flow do Room em IO. Num processo acabado de arrancar (utilizador abre a
+     * app e vai direto a este ecrã), a primeira emissão do Room ainda não chegou: o `get`
+     * devolvia null, o ecrã abria com os valores por omissão como se o jogo não tivesse regra
+     * nenhuma, e um "Guardar" a seguir escrevia esses valores por cima da regra real criada no
+     * overlay. Exatamente o oposto da parceria overlay <-> banco que se pretende.
+     *
+     * Agora coleta o Flow, por isso o ecrã preenche-se assim que o Room responde. Para não
+     * atropelar o utilizador, as emissões deixam de ser aplicadas a partir do momento em que ele
+     * mexe em alguma coisa (ver [userHasEdited]).
      */
-    private fun loadOverride(packageName: String) {
-        val entity = overrideRepository.get(packageName) ?: return
+    private fun observeOverride(packageName: String) {
+        viewModelScope.launch {
+            overrideRepository.overridesByPackage
+                .map { it[packageName] }
+                .distinctUntilChanged()
+                .collect { entity ->
+                    if (entity != null && !userHasEdited) applyEntity(entity)
+                }
+        }
+    }
+
+    private fun applyEntity(entity: AppOverrideEntity) {
         _uiState.update {
             it.copy(
                 limitMode = entity.limitMode,
@@ -132,39 +163,36 @@ class AppOverrideViewModel @Inject constructor(
         }
     }
 
-    fun updateLimitMode(mode: String) = _uiState.update { it.copy(limitMode = mode) }
-    fun updateTdp(watts: Float) = _uiState.update { it.copy(tdpWatts = watts) }
+    /** Marca que o utilizador já mexeu no ecrã -- ver [userHasEdited]/[observeOverride]. */
+    private fun markEdited() {
+        userHasEdited = true
+    }
+
+    fun updateLimitMode(mode: String) { markEdited(); _uiState.update { it.copy(limitMode = mode) } }
+    fun updateTdp(watts: Float) { markEdited(); _uiState.update { it.copy(tdpWatts = watts) } }
 
     /** GPU é sempre passada separadamente -- ver comentário em ClockPresets.kt sobre porquê. */
-    fun updateClocks(perfMHz: Float, primeMHz: Float, gpuMHz: Float) =
+    fun updateClocks(perfMHz: Float, primeMHz: Float, gpuMHz: Float) {
+        markEdited()
         _uiState.update { it.copy(perfClockMHz = perfMHz, primeClockMHz = primeMHz, gpuClockMHz = gpuMHz) }
+    }
 
-    fun updateFanMode(settingsValue: Int) = _uiState.update { it.copy(fanSettingsValue = settingsValue) }
+    fun updateFanMode(settingsValue: Int) { markEdited(); _uiState.update { it.copy(fanSettingsValue = settingsValue) } }
 
     fun updateLsfg(enabled: Boolean, multiplier: String, framePacing: Boolean, performanceMode: Boolean, quality: Float) {
+        markEdited()
         _uiState.update { it.copy(lsfgEnabled = enabled, lsfgMultiplier = multiplier, lsfgFramePacing = framePacing, lsfgPerformanceMode = performanceMode, lsfgQuality = quality) }
     }
 
     fun updateSgsr(enabled: Boolean, mode: String, sharpness: Float) {
+        markEdited()
         _uiState.update { it.copy(sgsrEnabled = enabled, sgsrMode = mode, sgsrSharpness = sharpness) }
     }
 
     fun updateDisplayColor(reshade: String, saturation: Float, temperature: Float) {
+        markEdited()
         _uiState.update { it.copy(reshadeProfile = reshade, saturationOverride = saturation, temperatureOverride = temperature) }
     }
-
-    /**
-     * Nome de exibição do preset ativo, só para a lista de jogos (ver AppOverrideMapper) -- os
-     * valores numéricos continuam a ser a fonte de verdade real; isto é só um rótulo bonito.
-     * Devolve "Custom" quando os valores não coincidem exatamente com nenhum perfil nomeado (ex:
-     * o utilizador ajustou o TDP manualmente para um valor fora dos presets).
-     */
-    private fun tdpProfileLabel(watts: Float): String =
-        NAMED_TDP_PROFILES.firstOrNull { it.second == watts }?.first ?: "Custom (${watts.toInt()}W)"
-
-    private fun clockProfileLabel(perfMHz: Float, primeMHz: Float): String =
-        CombinedClockProfiles.all.firstOrNull { it.perfClockMHz == perfMHz && it.primeClockMHz == primeMHz }?.label
-            ?: "Custom"
 
     fun saveOverride() {
         viewModelScope.launch {
@@ -183,10 +211,12 @@ class AppOverrideViewModel @Inject constructor(
 
                 // Rótulos só para a subtitle da lista (AppOverrideMapper) -- só o modo ATIVO
                 // ganha um rótulo descritivo, o outro fica "Stock" para não sugerir que os dois
-                // modos estão em vigor ao mesmo tempo (não estão -- ver limitMode).
-                tdpProfile = if (isTdp) tdpProfileLabel(current.tdpWatts) else "Stock",
-                clockProfile = if (!isTdp) clockProfileLabel(current.perfClockMHz, current.primeClockMHz) else "Stock",
-                fanProfile = FanMode.fromSettingsValue(current.fanSettingsValue).shortLabel,
+                // modos estão em vigor ao mesmo tempo (não estão -- ver limitMode). Calculados
+                // com o MESMO helper que o overlay usa (AppOverrideLabels), para que uma regra
+                // criada em jogo e outra criada aqui descrevam os mesmos valores da mesma forma.
+                tdpProfile = if (isTdp) AppOverrideLabels.tdpLabel(current.tdpWatts) else "Stock",
+                clockProfile = if (!isTdp) AppOverrideLabels.clockLabel(current.perfClockMHz, current.primeClockMHz) else "Stock",
+                fanProfile = AppOverrideLabels.fanLabel(current.fanSettingsValue),
 
                 lsfgEnabled = current.lsfgEnabled,
                 lsfgMultiplier = multInt,
@@ -210,7 +240,17 @@ class AppOverrideViewModel @Inject constructor(
     fun deleteOverride() {
         viewModelScope.launch {
             overrideRepository.delete(_uiState.value.packageName)
-            _uiState.update { AppOverrideUiState(packageName = it.packageName, appName = it.appName) }
+            // Repõe os valores por omissão mas preserva a identidade do app e o tema -- criar um
+            // AppOverrideUiState() limpo apagava também o tema escolhido e o ecrã saltava para as
+            // cores por omissão no instante em que a regra era removida.
+            _uiState.update {
+                AppOverrideUiState(
+                    packageName = it.packageName,
+                    appName = it.appName,
+                    selectedThemeIndex = it.selectedThemeIndex,
+                    useAmoledBlack = it.useAmoledBlack,
+                )
+            }
         }
     }
 }
