@@ -30,6 +30,7 @@
 #include "OdinVkLayerCompat.h"
 #include <android/log.h>
 #include <unistd.h>
+#include <cstdio>
 #include <cstring>
 #include <cstdint>
 #include <mutex>
@@ -52,6 +53,42 @@
 namespace {
 
 odin::ConfigReader g_config;
+
+// -------------------------------------------------------------------------------------------
+// Auto-exclusão: NUNCA processar SGSR/ReShade/LSFG dentro do processo da própria Odin Hub.
+// -------------------------------------------------------------------------------------------
+// BUG GRAVE encontrado ao analisar o logcat do utilizador depois da Parte 5: o Android moderno
+// desenha a própria UI da app (Compose/HWUI) via Vulkan por baixo dos panos, então QUALQUER
+// processo que crie uma VkInstance carrega esta camada -- incluindo a própria Odin Hub, não só
+// os jogos. `debug.vulkan.layers`/`debug.vulkan.layer.dir` são propriedades GLOBAIS do sistema,
+// não há como restringi-las a um único processo a partir de fora, e um valor definido para um
+// jogo pode ficar "preso" (ex.: a app foi forçada a fechar antes do
+// `ForegroundAppWatcherService` conseguir chamar `disableLayer()` ao voltar à home). O resultado
+// visto no aparelho real do utilizador: a própria Odin Hub abria, entrava em ecrã cinza e depois
+// preto para sempre, sem crash nenhum -- o pipeline de SGSR/ReShade (código nunca antes testado
+// em hardware real) estava a processar a interface da PRÓPRIA app e nalgum ponto bloqueava a
+// thread de render (esperar por uma fence, por exemplo) sem nunca devolver.
+//
+// Correção definitiva, independente de qualquer corrida de `setprop`: a camada lê o próprio
+// nome de processo via `/proc/self/cmdline` UMA VEZ, ao carregar, e se ele corresponder ao
+// applicationId da Odin Hub (`com.dfdx047.odinhub`, de `app/build.gradle.kts`), marca-se como
+// "processo próprio" -- `ProcessSwapchainPresent` então recusa-se SEMPRE a processar qualquer
+// efeito nesse processo, não importa o que as propriedades `debug.odinhub.*` digam. A Odin Hub
+// nunca deve aplicar os seus próprios efeitos a si mesma; só aos jogos.
+bool DetectIsOwnProcess() {
+    FILE *f = fopen("/proc/self/cmdline", "r");
+    if (!f) return false;
+    char buf[256] = {0};
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    if (n == 0) return false;
+    buf[n] = '\0';
+    // cmdline separa argumentos com '\0'; o primeiro é o nome do processo (normalmente igual
+    // ao applicationId para o processo principal, ou "applicationId:algo" para um secundário).
+    return strncmp(buf, "com.dfdx047.odinhub", strlen("com.dfdx047.odinhub")) == 0;
+}
+
+const bool g_isOwnProcess = DetectIsOwnProcess();
 
 // -------------------------------------------------------------------------------------------
 // Estado por VkDevice / por VkSwapchainKHR
@@ -578,6 +615,7 @@ void image_barrier(DeviceData *d, VkCommandBuffer cmd, VkImage image, VkImageLay
 bool ProcessSwapchainPresent(DeviceData *d, VkQueue queue, SwapchainData *sc, uint32_t imageIndex,
                               uint32_t waitSemaphoreCount, const VkSemaphore *pWaitSemaphores) {
     if (!sc->ready) return false;
+    if (g_isOwnProcess) return false; // nunca aplicar efeitos à própria Odin Hub -- ver DetectIsOwnProcess()
 
     const odin::LayerConfig &cfg = g_config.get();
     bool useSgsr = cfg.sgsrEnabled;
@@ -1053,5 +1091,6 @@ vkGetInstanceProcAddr(VkInstance instance, const char *pName) {
 // no logcat do processo do jogo, o problema é de DESCOBERTA da camada (nome/caminho errados em
 // `debug.vulkan.layers`/`debug.vulkan.layer.dir`), não da lógica de interceção em si.
 __attribute__((constructor)) static void OdinLayerOnLoad() {
-    LOGI("VkLayer_OdinHub carregada no processo (pid=%d) -- pronta a interceptar vkQueuePresentKHR.", getpid());
+    LOGI("VkLayer_OdinHub carregada no processo (pid=%d) -- pronta a interceptar vkQueuePresentKHR. own_process=%d",
+         getpid(), (int) g_isOwnProcess);
 }
