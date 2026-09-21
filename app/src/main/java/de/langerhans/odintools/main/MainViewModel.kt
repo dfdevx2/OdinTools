@@ -17,7 +17,7 @@ import de.langerhans.odintools.tools.ShellExecutor
 import de.langerhans.odintools.tools.hardware.DisplayManager
 import de.langerhans.odintools.tools.hardware.LosslessManager
 import de.langerhans.odintools.tools.SoundManager
-import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
+import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,8 +38,7 @@ class MainViewModel @Inject constructor(
     private val performanceManager: PerformanceManager,
     private val displayManager: DisplayManager,
     private val losslessManager: LosslessManager,
-    private val soundManager: SoundManager,
-    private val graphicsLayerManager: GraphicsLayerManager
+    private val soundManager: SoundManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiModel())
@@ -95,43 +94,21 @@ class MainViewModel @Inject constructor(
 
         soundManager.startBackgroundMusicIfEnabled()
 
-        // BUG (Parte 5 -> corrigido aqui): a app deixava de sair da splash/logo depois desta
-        // ronda. Causa: `VulkanNativeBridge` (JNI, chamada de função em processo, quase
-        // instantânea) foi substituído por `GraphicsLayerManager` (cada chamada faz um `exec`
-        // root de VERDADE via `ShellExecutor`, arrancando um processo `su`/PServerBinder). Isto
-        // aqui no `init {}` de uma Hilt ViewModel corre na thread principal, na criação da
-        // Activity -- e passámos a fazer ~9 `exec` root SÍNCRONOS em sequência (limpar a camada,
-        // + LSFG + SGSR + ReShade) bem no arranque da app, antes do primeiro frame. Cada `exec`
-        // root pode demorar dezenas a centenas de ms (ou travar de vez se pedir confirmação de
-        // root); em sequência e na UI thread isso é o suficiente para nunca soltar a splash
-        // screen -- exatamente o sintoma "fica preso no logo". Motivo de nunca ter acontecido
-        // antes: os dois `setprop` de limpeza da camada Vulkan já existiam e sempre correram
-        // aqui, mas só dois execs rápidos não é o bastante para travar visivelmente; a soma dos
-        // 7 novos é que estourou. Corrigido: tudo isto passa para uma coroutine em
-        // `Dispatchers.IO`, fora da thread principal -- a UI aparece imediatamente e a
-        // configuração da camada Vulkan/ReShade/SGSR/LSFG chega ao sistema uma fração de segundo
-        // depois, sem bloquear nada.
+        // O motor gráfico (camada Vulkan real para ReShade/SGSR/LSFG) foi removido -- não estava
+        // estável em hardware real (travava o próprio processo da app, ver histórico). Voltamos
+        // ao `VulkanNativeBridge` original (ponte JNI que só guarda os valores, sem efeito real
+        // no jogo) até termos uma implementação de referência testada para retomar isto.
+        //
+        // As chamadas de arranque que fazem `exec` root (`settings.applyRequiredSettings()`)
+        // continuam em background por segurança -- isso já tinha causado um travamento na splash
+        // screen independente do motor gráfico (ver Odin 3: "Activity pause timeout" no logcat).
         viewModelScope.launch(Dispatchers.IO) {
-            // Achado ao investigar por que o arranque travava ESPECIFICAMENTE no Odin 3 (mesma
-            // build abria normal no emulador do Android Studio e noutro aparelho): esta chamada
-            // continuava a correr de forma síncrona aqui no `init {}`, na thread principal --
-            // `enableA11yService`/`grantAllAppsPermission`/`addOdinToolsToWhitelist` fazem vários
-            // `exec` root cada uma. No Odin 3 do utilizador havia bem mais coisa a correr em
-            // segundo plano (launcher próprio "Cocoon", Discord RPC, etc.) do que no emulador --
-            // mais contenção à volta do daemon root, cada `exec` mais lento, e a soma facilmente
-            // ultrapassa a janela antes do sistema desistir de esperar pela thread principal
-            // (visível no logcat como "Activity pause timeout"/"top resumed state loss timeout",
-            // e o processo ficava congelado tão cedo que nem chegava a emitir os logs mais básicos
-            // do Android). Mesma causa raiz da Parte 5, só que numa chamada que tinha escapado
-            // daquela ronda.
             settings.applyRequiredSettings()
-
-            executor.executeAsRoot("setprop debug.vulkan.layers \"\"")
-            executor.executeAsRoot("setprop debug.vulkan.layer.dir \"\"")
-            graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
-            graphicsLayerManager.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
-            graphicsLayerManager.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
         }
+
+        VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
+        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
+        VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
 
         if (prefs.overlayEnabled) {
             context.startService(Intent(context, GamingOverlayService::class.java))
@@ -196,11 +173,11 @@ class MainViewModel @Inject constructor(
     fun updateHandleWidth(width: Int) { prefs.overlayHandleWidth = width; _uiState.update { it.copy(overlayHandleWidth = width) } }
     fun toggleFpsOverlay(enabled: Boolean) { prefs.showFpsOverlay = enabled; _uiState.update { it.copy(showFpsOverlay = enabled) } }
 
-    fun updateGlobalLsfg(enabled: Boolean) { prefs.globalLsfgEnabled = enabled; _uiState.update { it.copy(globalLsfgEnabled = enabled) }; graphicsLayerManager.applyLsfg(enabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing) }
-    fun updateLsfgOptions(multiplier: String, pacing: Boolean, perfMode: Boolean) { prefs.lsfgMultiplier = multiplier; prefs.lsfgFramePacing = pacing; prefs.lsfgPerformanceMode = perfMode; _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing, lsfgPerformanceMode = perfMode) }; graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing) }
+    fun updateGlobalLsfg(enabled: Boolean) { prefs.globalLsfgEnabled = enabled; _uiState.update { it.copy(globalLsfgEnabled = enabled) }; VulkanNativeBridge.applyLsfg(enabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing) }
+    fun updateLsfgOptions(multiplier: String, pacing: Boolean, perfMode: Boolean) { prefs.lsfgMultiplier = multiplier; prefs.lsfgFramePacing = pacing; prefs.lsfgPerformanceMode = perfMode; _uiState.update { it.copy(lsfgMultiplier = multiplier, lsfgFramePacing = pacing, lsfgPerformanceMode = perfMode) }; VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, multiplier, pacing) }
 
-    fun updateGlobalSgsr(enabled: Boolean) { prefs.globalSgsrEnabled = enabled; _uiState.update { it.copy(globalSgsrEnabled = enabled) }; graphicsLayerManager.applySgsr(enabled, prefs.sgsrMode) }
-    fun updateSgsrOptions(mode: String, sharpness: Float) { prefs.sgsrMode = mode; prefs.sgsrSharpness = sharpness; _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }; graphicsLayerManager.applySgsr(prefs.globalSgsrEnabled, mode) }
+    fun updateGlobalSgsr(enabled: Boolean) { prefs.globalSgsrEnabled = enabled; _uiState.update { it.copy(globalSgsrEnabled = enabled) }; VulkanNativeBridge.applySgsr(enabled, prefs.sgsrMode) }
+    fun updateSgsrOptions(mode: String, sharpness: Float) { prefs.sgsrMode = mode; prefs.sgsrSharpness = sharpness; _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }; VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode) }
 
     fun saveSaturation(newValue: Float) { prefs.saturationOverride = newValue; displayManager.applySaturation(newValue); _uiState.update { it.copy(currentSaturation = newValue) } }
     fun saveTemperature(newValue: Float) { prefs.temperatureOverride = newValue; displayManager.applyTemperature(newValue); _uiState.update { it.copy(currentTemperature = newValue) } }

@@ -51,10 +51,7 @@ class SharedPrefsRepo @Inject constructor(
     var globalSgsrEnabled: Boolean get() = prefs.getBoolean("global_sgsr_enabled", false); set(value) = prefs.edit().putBoolean("global_sgsr_enabled", value).apply()
     var sgsrMode: String get() = prefs.getString("sgsr_mode", "Quality") ?: "Quality"; set(value) = prefs.edit().putString("sgsr_mode", value).apply()
     var sgsrSharpness: Float get() = prefs.getFloat("sgsr_sharpness", 0.5f); set(value) = prefs.edit().putFloat("sgsr_sharpness", value).apply()
-    // "Native" era o valor por omissão antigo -- ReshadeProfiles.effectIdFor() ainda sabe mapeá-lo
-    // (para não estragar valores já gravados em aparelhos existentes), mas o nome exibido na UI
-    // curada agora é "Nativo" (ver ReshadeProfiles.kt).
-    var reshadeProfile: String get() = prefs.getString("reshade_profile", "Nativo") ?: "Nativo"; set(value) = prefs.edit().putString("reshade_profile", value).apply()
+    var reshadeProfile: String get() = prefs.getString("reshade_profile", "Native") ?: "Native"; set(value) = prefs.edit().putString("reshade_profile", value).apply()
     var showFpsOverlay: Boolean get() = prefs.getBoolean("fps_overlay", false); set(value) = prefs.edit().putBoolean("fps_overlay", value).apply()
     var currentForegroundApp: String get() = prefs.getString("current_foreground_app", "global") ?: "global"; set(value) = prefs.edit().putString("current_foreground_app", value).apply()
 

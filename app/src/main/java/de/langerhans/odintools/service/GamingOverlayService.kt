@@ -7,7 +7,6 @@ import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.overlay.QuickAccessOverlay
-import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -30,11 +29,6 @@ class GamingOverlayService : Service() {
     @Inject
     lateinit var overrideRepository: AppOverrideRepository
 
-    // Mesmo singleton usado por MainViewModel/ForegroundAppWatcherService -- ver auditoria da
-    // Parte 5 sobre porque isto não pode ser uma instância própria do overlay.
-    @Inject
-    lateinit var graphicsLayerManager: GraphicsLayerManager
-
     private var overlay: QuickAccessOverlay? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -55,7 +49,7 @@ class GamingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        overlay = QuickAccessOverlay(this, prefs, performanceManager, overrideRepository, graphicsLayerManager)
+        overlay = QuickAccessOverlay(this, prefs, performanceManager, overrideRepository)
 
         scope.launch {
             toggleOverlayFlow.collect {

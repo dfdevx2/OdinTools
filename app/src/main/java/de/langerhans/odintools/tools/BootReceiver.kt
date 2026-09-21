@@ -7,7 +7,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.service.GamingOverlayService
 import de.langerhans.odintools.tools.hardware.DisplayManager
-import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
+import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,8 +33,8 @@ import javax.inject.Inject
  * Esta classe agora existe de verdade e faz algo útil com o gancho: reaplica as configurações
  * root que não sobrevivem a um reboot (sysfs é sempre reposto a valores de fábrica ao reiniciar)
  * -- TDP/clocks globais não são reaplicados aqui de propósito (dependem de qual app está em
- * primeiro plano, isso é o `ForegroundAppWatcherService`), mas a calibração de cor, o motor
- * gráfico (LSFG/SGSR/ReShade) e o overlay (se estava ativado) sim.
+ * primeiro plano, isso é o `ForegroundAppWatcherService`), mas a calibração de cor e o overlay
+ * (se estava ativado) sim.
  *
  * `goAsync()` + coroutine em `Dispatchers.IO`: um `BroadcastReceiver.onReceive` corre na thread
  * principal e tem um limite curto (~10s) antes do sistema o considerar poços -- fazer `exec` root
@@ -45,7 +45,6 @@ class BootReceiver : BroadcastReceiver() {
 
     @Inject lateinit var settings: SettingsRepo
     @Inject lateinit var prefs: SharedPrefsRepo
-    @Inject lateinit var graphicsLayerManager: GraphicsLayerManager
     @Inject lateinit var displayManager: DisplayManager
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -61,9 +60,9 @@ class BootReceiver : BroadcastReceiver() {
                 displayManager.applySaturation(prefs.saturationOverride)
                 displayManager.applyTemperature(prefs.temperatureOverride)
 
-                graphicsLayerManager.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
-                graphicsLayerManager.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
-                graphicsLayerManager.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+                VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
+                VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
+                VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
 
                 if (prefs.overlayEnabled) {
                     context.startService(Intent(context, GamingOverlayService::class.java))

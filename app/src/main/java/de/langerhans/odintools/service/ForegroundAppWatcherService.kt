@@ -8,8 +8,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import de.langerhans.odintools.data.AppOverrideRepository
 import de.langerhans.odintools.data.SharedPrefsRepo
 import de.langerhans.odintools.models.FanMode
-import de.langerhans.odintools.tools.hardware.GraphicsLayerManager
 import de.langerhans.odintools.tools.hardware.PerformanceManager
+import de.langerhans.odintools.tools.hardware.VulkanNativeBridge
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -17,7 +17,6 @@ class ForegroundAppWatcherService : AccessibilityService() {
 
     @Inject lateinit var prefs: SharedPrefsRepo
     @Inject lateinit var performanceManager: PerformanceManager
-    @Inject lateinit var graphicsLayerManager: GraphicsLayerManager
 
     // Fonte única de verdade das regras por jogo (ver AppOverrideRepository). Substitui as
     // leituras diretas de SharedPrefs (`prefs.getPerApp*`) que existiam aqui antes: aquelas
@@ -55,17 +54,12 @@ class ForegroundAppWatcherService : AccessibilityService() {
             currentApp = pkg
             prefs.currentForegroundApp = pkg
 
-            // Bug reportado: com o overlay ativado, os perfis/camada Vulkan ficavam a aplicar-se
-            // ao sistema inteiro (inclusive na home/launcher), em vez de só dentro do jogo. A
-            // partir daqui só ativamos a camada Vulkan e o puxador do overlay quando o foreground
-            // é mesmo um jogo/app -- nunca a nossa própria app, a home ou a systemui.
+            // Bug reportado: com o overlay ativado, ele ficava visível mesmo fora de jogos
+            // (inclusive na home/launcher). A partir daqui só publicamos o puxador do overlay
+            // como ativo quando o foreground é mesmo um jogo/app -- nunca a nossa própria app,
+            // a home ou a systemui.
             val isRealGame = pkg != launcherPackage
             GamingOverlayService.foregroundGameActive.value = isRealGame
-            if (isRealGame) {
-                graphicsLayerManager.enableLayerForGame(applicationInfo.nativeLibraryDir)
-            } else {
-                graphicsLayerManager.disableLayer()
-            }
 
             applySteamDeckLogic(pkg)
         }
@@ -97,17 +91,17 @@ class ForegroundAppWatcherService : AccessibilityService() {
         // 3. Gráficos, SGSR, LSFG e ReShade
         val sgsr = override?.sgsrEnabled ?: prefs.globalSgsrEnabled
         val sgsrMode = override?.sgsrMode ?: prefs.sgsrMode
-        graphicsLayerManager.applySgsr(sgsr, sgsrMode)
+        VulkanNativeBridge.applySgsr(sgsr, sgsrMode)
 
         val lsfg = override?.lsfgEnabled ?: prefs.globalLsfgEnabled
         val lsfgMult = override?.lsfgMultiplier?.let { "${it}x" } ?: prefs.lsfgMultiplier
         val lsfgPacing = override?.lsfgFramePacing ?: prefs.lsfgFramePacing
-        graphicsLayerManager.applyLsfg(lsfg, lsfgMult, lsfgPacing)
+        VulkanNativeBridge.applyLsfg(lsfg, lsfgMult, lsfgPacing)
 
         val reshade = override?.reshadeProfile ?: prefs.reshadeProfile
         val saturation = override?.saturationOverride ?: prefs.saturationOverride
         val temperature = override?.temperatureOverride ?: prefs.temperatureOverride
-        graphicsLayerManager.applyReshade(reshade, saturation, temperature)
+        VulkanNativeBridge.applyReshade(reshade, saturation, temperature)
     }
 
     override fun onInterrupt() {}

@@ -8,14 +8,45 @@ import javax.inject.Singleton
 class DisplayManager @Inject constructor(
     private val executor: ShellExecutor
 ) {
-    // A injeção de camadas Vulkan (SGSR/ReShade/LSFG) mudou-se para GraphicsLayerManager
-    // (enableLayerForGame/disableLayer), usando `debug.vulkan.layers`/`debug.vulkan.layer.dir`
-    // via root em vez das `settings global gpu_debug_*` daqui -- essas dependem de developer
-    // options ("Enable GPU debug layers") e de o jogo alvo ser "debuggable", o que não se aplica
-    // à generalidade dos jogos reais; o mecanismo root já usado pelo resto desta app funciona
-    // sempre. Esta função também apontava para nomes de camada fictícios
-    // (`VK_LAYER_LSFG_frame_generation`/`VK_LAYER_QCOM_sgsr`) e nunca chegou a ser chamada por
-    // ninguém -- ver AUDIT_PARTE5.md.
+    // ==========================================
+    // INJEÇÃO DE VULKAN LAYERS (FRAME GEN E SGSR)
+    // ==========================================
+
+    /**
+     * Aplica as bibliotecas dinâmicas (.so) no jogo que está abrindo.
+     * Funciona sem root se o OdinTools tiver permissão ADB/Shizuku, ou com Root nativo.
+     */
+    fun applyGpuLayers(packageName: String, lsfgEnabled: Boolean, sgsrEnabled: Boolean) {
+        if (!lsfgEnabled && !sgsrEnabled) {
+            clearGpuLayers()
+            return
+        }
+
+        val layers = mutableListOf<String>()
+        if (lsfgEnabled) layers.add("VK_LAYER_LSFG_frame_generation") // Nome fictício da layer do Lossless Scaling
+        if (sgsrEnabled) layers.add("VK_LAYER_QCOM_sgsr") // Nome padrão da layer do Snapdragon Super Res
+
+        val layersString = layers.joinToString(":")
+
+        // Ativa a infraestrutura de depuração gráfica no Android
+        executor.executeAsRoot("settings put global enable_gpu_debug_layers 1")
+        // Diz ao Android em qual jogo injetar
+        executor.executeAsRoot("settings put global gpu_debug_app $packageName")
+        // Injeta as camadas selecionadas
+        executor.executeAsRoot("settings put global gpu_debug_layers $layersString")
+        // Aponta para a pasta do nosso app onde os arquivos .so estarão guardados
+        executor.executeAsRoot("settings put global gpu_debug_layer_app de.langerhans.odintools")
+    }
+
+    /**
+     * Limpa a injeção quando o jogo é fechado ou o recurso desativado.
+     */
+    fun clearGpuLayers() {
+        executor.executeAsRoot("settings delete global enable_gpu_debug_layers")
+        executor.executeAsRoot("settings delete global gpu_debug_app")
+        executor.executeAsRoot("settings delete global gpu_debug_layers")
+        executor.executeAsRoot("settings delete global gpu_debug_layer_app")
+    }
 
     // ==========================================
     // CALIBRAÇÃO DE TELA (SATURAÇÃO E TEMPERATURA)
