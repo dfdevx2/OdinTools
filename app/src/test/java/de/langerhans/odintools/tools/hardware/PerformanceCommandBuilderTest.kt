@@ -117,7 +117,16 @@ class PerformanceCommandBuilderTest {
     @Test
     fun `wattsToRatio mapeia watts para um ratio normalizado e seguro`() {
         assertEquals(1.0f, PerformanceCommandBuilder.wattsToRatio(25f), 0.001f)
-        assertEquals(0.3f, PerformanceCommandBuilder.wattsToRatio(1f), 0.001f) // corta no mínimo
+        // Antes do fix da Parte 3 (AUDIT_PARTE3.md, "5W não limita, 10W limita"), o piso aqui
+        // era CPU_MIN_RATIO (0.30f) -- alto demais para um alvo baixo como 1W/5W conseguir
+        // convergir de verdade. Este teste ficou desatualizado depois daquele fix (continuava a
+        // exigir 0.3f) e só foi apanhado agora que a CI passou a rodar testDebugUnitTest de
+        // verdade. O piso correto e atual é TDP_MIN_RATIO (0.12f).
+        assertEquals(
+            PerformanceCommandBuilder.TDP_MIN_RATIO,
+            PerformanceCommandBuilder.wattsToRatio(1f),
+            0.001f,
+        ) // corta no mínimo
         assertEquals(0.6f, PerformanceCommandBuilder.wattsToRatio(15f), 0.001f)
     }
 
