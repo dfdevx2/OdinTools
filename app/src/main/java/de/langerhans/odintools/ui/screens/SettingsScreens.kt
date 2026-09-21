@@ -78,8 +78,12 @@ import kotlinx.coroutines.withContext
  * oscilação, mas com desaceleração natural no fim —, combinado com um leve zoom e um
  * cross-fade rápido. O `SizeTransform(clip = false)` evita que o conteúdo da aba seja recortado
  * enquanto as duas coexistem, que era o que fazia o texto "piscar" a meio da troca.
+ *
+ * NOTA: tem de ser uma extensão de [AnimatedContentTransitionScope]. O `using` não é uma função
+ * de topo — é membro dessa interface —, por isso uma função solta que o invoque não compila
+ * ("Unresolved reference 'using'"). O receiver vem implícito da lambda `transitionSpec`.
  */
-private fun tabTransition(forward: Boolean): ContentTransform {
+private fun AnimatedContentTransitionScope<Int>.tabTransition(forward: Boolean): ContentTransform {
     val offset: (Int) -> Int = { width -> (width / 5) * if (forward) 1 else -1 }
     val outOffset: (Int) -> Int = { width -> (width / 5) * if (forward) -1 else 1 }
 
@@ -108,7 +112,7 @@ private fun tabTransition(forward: Boolean): ContentTransform {
  * a "assentar": começa 8% maior e ligeiramente acima, e desce até ao lugar com um `FastOutSlowIn`.
  * O fade da interface arranca com um pequeno atraso para não competir com a saída do vídeo.
  */
-private fun bootTransition(enteringHome: Boolean): ContentTransform {
+private fun AnimatedContentTransitionScope<Boolean>.bootTransition(enteringHome: Boolean): ContentTransform {
     if (!enteringHome) {
         // Caminho inverso (voltar a ver o vídeo, via "rever intro"): simples e curto.
         return fadeIn(animationSpec = tween(300)) togetherWith
