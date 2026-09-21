@@ -1,4 +1,4 @@
-name: Build OdinTools (Compose Edition)
+name: Build Odin Hub
 
 on:
   push:

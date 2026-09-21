@@ -24,7 +24,7 @@ extern "C" {
 // --- PONTE DE COMUNICAÇÃO: RECEBE DADOS DO KOTLIN ---
 
 JNIEXPORT void JNICALL
-Java_de_langerhans_odintools_tools_hardware_VulkanNativeBridge_updateSgsrSettings(
+Java_com_dfdx047_odinhub_tools_hardware_VulkanNativeBridge_updateSgsrSettings(
         JNIEnv* env, jobject thiz, jboolean enabled, jint mode) {
     g_sgsrEnabled = enabled;
     g_sgsrMode = mode;
@@ -32,7 +32,7 @@ Java_de_langerhans_odintools_tools_hardware_VulkanNativeBridge_updateSgsrSetting
 }
 
 JNIEXPORT void JNICALL
-Java_de_langerhans_odintools_tools_hardware_VulkanNativeBridge_updateLsfgSettings(
+Java_com_dfdx047_odinhub_tools_hardware_VulkanNativeBridge_updateLsfgSettings(
         JNIEnv* env, jobject thiz, jboolean enabled, jint multiplier, jboolean framePacing) {
     g_lsfgEnabled = enabled;
     g_lsfgMultiplier = multiplier;
@@ -41,7 +41,7 @@ Java_de_langerhans_odintools_tools_hardware_VulkanNativeBridge_updateLsfgSetting
 }
 
 JNIEXPORT void JNICALL
-Java_de_langerhans_odintools_tools_hardware_VulkanNativeBridge_updateReshadeSettings(
+Java_com_dfdx047_odinhub_tools_hardware_VulkanNativeBridge_updateReshadeSettings(
         JNIEnv* env, jobject thiz, jint profileId, jfloat saturation, jfloat temperature) {
     g_reshadeProfileId = profileId;
     g_saturation = saturation;

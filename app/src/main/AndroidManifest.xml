@@ -35,16 +35,16 @@
         são arrancados só de dentro desta app.
     -->
     <application
-        android:name=".OdinToolsApplication"
+        android:name=".OdinHubApplication"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/appName"
         android:supportsRtl="true"
-        android:theme="@style/Theme.OdinTools"
+        android:theme="@style/Theme.OdinHub"
         android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".main.MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.OdinTools"
+            android:theme="@style/Theme.OdinHub"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

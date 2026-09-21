@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "de.langerhans.odintools"
+    namespace = "com.dfdx047.odinhub"
     compileSdk = 35
 
     defaultConfig {

@@ -8,4 +8,4 @@
         android:notificationTimeout="10"
         android:canRetrieveWindowContent="false"
         android:canRequestFilterKeyEvents="true"
-        android:settingsActivity="de.langerhans.odintools.main.MainActivity" />
+        android:settingsActivity="com.dfdx047.odinhub.main.MainActivity" />

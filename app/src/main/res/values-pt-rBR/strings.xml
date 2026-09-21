@@ -54,7 +54,7 @@
     <string name="videoOutputOverrideDescription">Configurar override quando conectado a uma tela externa. Desligue para desativar.</string>
 
     <!-- Overrides de Aplicativo -->
-    <string name="a11yDescription">Usado pelo OdinTools para detectar apps em execução e alternar configurações dinamicamente.</string>
+    <string name="a11yDescription">Usado pelo Odin Hub para detectar o jogo em primeiro plano e aplicar automaticamente o perfil de desempenho desse jogo.</string>
     <string name="appOverrides">Overrides de Aplicativo</string>
     <string name="appOverridesDescription">Configurar perfis por app. Desligue para desativar todos os overrides.</string>
     <string name="addOverride">Adicionar override</string>
