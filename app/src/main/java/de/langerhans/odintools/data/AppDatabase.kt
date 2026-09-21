@@ -8,7 +8,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [AppOverrideEntity::class],
     version = 5, // v5: adiciona limitMode + valores numéricos reais de TDP/Clock/Fan por jogo
-    exportSchema = false
+    // Antes: exportSchema = false descartava o histórico de schema a cada build -- o plugin
+    // `androidx.room` já estava configurado para gravar em `schemas/` (ver bloco `room {}`
+    // abaixo), mas isso nunca gerava nada porque o export estava desligado aqui. Com
+    // exportSchema = true, cada versão do banco fica registada em JSON dentro de `schemas/`,
+    // permitindo ao Room validar migrações automaticamente em testes (MigrationTestHelper) e
+    // deixando o histórico rastreável no controlo de versão -- importante antes de teres mais
+    // utilizadores e migrações mais arriscadas de acertar às cegas.
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun appOverrideDao(): AppOverrideDao

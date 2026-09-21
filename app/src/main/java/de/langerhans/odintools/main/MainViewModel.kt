@@ -22,9 +22,11 @@ import de.langerhans.odintools.tools.hardware.PerformanceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 
@@ -43,6 +45,15 @@ class MainViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(MainUiModel())
     val uiState: StateFlow<MainUiModel> = _uiState.asStateFlow()
+
+    // Antes, uma escrita de sysfs rejeitada pelo PServer só ficava no Log.e do PerformanceManager
+    // -- o utilizador via o slider "colar" na UI sem nenhum aviso de que o valor não tinha sido
+    // realmente aplicado ao hardware. Este canal expõe um evento único (não um estado, para não
+    // reexibir o mesmo aviso a cada recomposição/rotação) sempre que um nó de hardware passa de
+    // "ok" para "falhou", para a UI mostrar um snackbar discreto.
+    private val _hardwareErrorEvents = Channel<String>(Channel.BUFFERED)
+    val hardwareErrorEvents = _hardwareErrorEvents.receiveAsFlow()
+    private var lastFailingHardwareLabels: Set<String> = emptySet()
 
     init {
         val deviceType = deviceUtils.getDeviceType()
@@ -112,6 +123,22 @@ class MainViewModel @Inject constructor(
 
         if (prefs.overlayEnabled) {
             context.startService(Intent(context, GamingOverlayService::class.java))
+        }
+
+        // Só emite um evento quando um nó de hardware passa a falhar (não a cada tick do daemon
+        // de 1s do PerformanceManager, senão o mesmo snackbar reapareceria sem parar enquanto o
+        // nó continuasse rejeitado).
+        viewModelScope.launch {
+            performanceManager.lastApplyStatus.collect { statuses ->
+                val failingLabels = statuses.filterNot { it.ok }.map { it.label }.toSet()
+                val newlyFailing = failingLabels - lastFailingHardwareLabels
+                if (newlyFailing.isNotEmpty()) {
+                    _hardwareErrorEvents.trySend(
+                        "Não foi possível aplicar: ${newlyFailing.joinToString(", ")}"
+                    )
+                }
+                lastFailingHardwareLabels = failingLabels
+            }
         }
     }
 

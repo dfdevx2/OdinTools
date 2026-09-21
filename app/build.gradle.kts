@@ -53,6 +53,15 @@ android {
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
+
+    // Necessário pelo Robolectric (testes JVM do AppOverrideRepository com Room in-memory) --
+    // sem isto, Robolectric não encontra os recursos/manifesto da app para simular o ambiente
+    // Android dentro de um teste unitário comum (testDebugUnitTest), que é o que a CI já corre.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 room {

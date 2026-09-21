@@ -79,6 +79,16 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     var showWelcomeSetup by rememberSaveable { mutableStateOf(viewModel.isFirstRun()) }
     var showBootAnimation by rememberSaveable { mutableStateOf(false) }
 
+    // Snackbar discreto para falhas reais de escrita em sysfs/PServer (ver
+    // MainViewModel.hardwareErrorEvents) -- antes disso, uma escrita rejeitada não tinha
+    // nenhum sinal visível para o utilizador além do Logcat.
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        viewModel.hardwareErrorEvents.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     var currentLanguage by rememberSaveable { mutableStateOf("Português (PT-BR)") }
     val isEn = currentLanguage == "English (US)"
 
@@ -183,6 +193,8 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                         }
                     }
                 }
+
+                SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars).padding(bottom = 8.dp))
             }
         }
     }

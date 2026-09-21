@@ -14,9 +14,11 @@ com-google-accompanist-accompanist-drawablepainter = "0.36.0"
 com-google-dagger = "2.52"
 com-google-devtools-ksp = "2.0.20-1.0.25"
 junit = "4.13.2"
+kotlinx-coroutines-test = "1.8.1"
 ktlint = "12.1.1"
 nl-littlerobots-version-catalog-update = "0.8.4"
 kotlin = "2.0.20"
+robolectric = "4.13"
 core-ktx = "1.13.1"
 
 [libraries]
@@ -45,6 +47,8 @@ com-google-dagger-hilt-android = { module = "com.google.dagger:hilt-android", ve
 com-google-dagger-hilt-android-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "com-google-dagger" }
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
 junit = { module = "junit:junit", version.ref = "junit" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines-test" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 
 [plugins]
 androidx-room = { id = "androidx.room", version.ref = "androidx-room" }
@@ -94,4 +98,8 @@ appKsp = [
 ]
 appUnitTest = [
     "junit",
+    "androidx-room-room-runtime",
+    "androidx-test-ext-junit",
+    "kotlinx-coroutines-test",
+    "robolectric",
 ]

@@ -24,6 +24,19 @@ jobs:
       - name: Dar permissao de execucao ao Gradle
         run: chmod +x gradlew
 
+      # Antes, a CI só rodava assembleDebug -- ou seja, um build que compila mas quebra em
+      # runtime (como os bugs corrigidos nesta auditoria) passava verde. testDebugUnitTest roda
+      # antes do build para falhar o PR cedo, em vez de só descobrir o problema num dispositivo.
+      - name: Rodar os testes unitarios (Debug)
+        run: ./gradlew testDebugUnitTest
+
+      - name: Upload do relatorio de testes (se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/reports/tests/testDebugUnitTest
+
       - name: Compilar o APK (Debug)
         run: ./gradlew assembleDebug
 
