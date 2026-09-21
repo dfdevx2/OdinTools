@@ -45,7 +45,7 @@
     <string name="videoOutputOverride">External override</string>
     <string name="videoOutputOverrideDescription">Set up override when connected to an external display. Switch off to disable.</string>
 
-    <string name="a11yDescription">Used by Odin Hub to detect the foreground game so it can apply that game's performance profile automatically.</string>
+    <string name="a11yDescription">Used by Odin Hub to detect the foreground game and automatically apply the performance profile saved for it.</string>
 
     <string name="appOverrides">App overrides</string>
     <string name="appOverridesDescription">Set up overrides per app. Switch off to globally disable app overrides.</string>
