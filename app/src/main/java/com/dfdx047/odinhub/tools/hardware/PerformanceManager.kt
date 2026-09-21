@@ -111,13 +111,51 @@ class PerformanceManager @Inject constructor(
                 val targetFile = if (maxFreqFile.exists()) maxFreqFile else scalingMaxFile
                 if (targetFile.exists()) {
                     val maxFreq = targetFile.readText().trim().toLongOrNull() ?: 3_000_000L
-                    policies.add(CpuPolicyNode(policyDir.absolutePath, maxFreq))
+                    policies.add(
+                        CpuPolicyNode(
+                            policyPath = policyDir.absolutePath,
+                            cpuinfoMaxFreqKHz = maxFreq,
+                            availableFreqsKHz = readAvailableFreqs(File(policyDir, "scaling_available_frequencies")),
+                        ),
+                    )
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "getCpuPolicies: falha ao varrer cpufreq", e)
         }
         return policies
+    }
+
+    /**
+     * Lê uma lista de frequências suportadas de um nó de sysfs (valores separados por espaços).
+     * Devolve lista vazia se o nó não existir ou não for legível -- nesse caso não encaixamos nada
+     * e mantemos o comportamento antigo.
+     */
+    private fun readAvailableFreqs(file: File): List<Long> = runCatching {
+        if (!file.exists()) return emptyList()
+        file.readText()
+            .trim()
+            .split(Regex("\\s+"))
+            .mapNotNull { it.toLongOrNull() }
+            .sorted()
+    }.getOrElse {
+        Log.w(TAG, "readAvailableFreqs: falha a ler ${file.path}", it)
+        emptyList()
+    }
+
+    /**
+     * Frequências que a GPU Adreno aceita. Mesmo problema dos clusters de CPU: escrever um valor
+     * arbitrário em `max_gpuclk` faz o driver assentar no OPP mais próximo, e a verificação por
+     * leitura reportava isso como falha ("Não foi possível aplicar: gpu-max-clock").
+     */
+    private val gpuAvailableFreqsHz: List<Long> by lazy {
+        listOf(
+            "/sys/class/kgsl/kgsl-3d0/gpu_available_frequencies",
+            "/sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies",
+        ).asSequence()
+            .map { readAvailableFreqs(File(it)) }
+            .firstOrNull { it.isNotEmpty() }
+            .orEmpty()
     }
 
     private fun writeLimitsToSysfs() {
@@ -140,7 +178,10 @@ class PerformanceManager @Inject constructor(
                 PerformanceCommandBuilder.CPU_MIN_RATIO
             },
         ) + if (File(sysfsGpuMaxPath).exists()) {
-            listOf(PerformanceCommandBuilder.buildGpuFrequencyOp(sysfsGpuMaxPath, targetGpu))
+            // Idem CPU: encaixa no OPP suportado mais próximo por baixo, para a verificação por
+            // leitura deixar de acusar falha num limite que de facto foi aplicado.
+            val snappedGpuHz = snapToSupported(targetGpu, gpuAvailableFreqsHz)
+            listOf(PerformanceCommandBuilder.buildGpuFrequencyOp(sysfsGpuMaxPath, snappedGpuHz))
         } else {
             emptyList()
         }
@@ -172,18 +213,42 @@ class PerformanceManager @Inject constructor(
     private fun applyWriteOp(op: HardwareWriteOp, retries: Int = 1): HardwareNodeStatus {
         executor.executeAsRoot(op.asChainedCommand())
         var readBack = readSysfsValue(op.targetPath)
-        if (readBack == op.value) {
+        if (isApplied(op.value, readBack)) {
             return HardwareNodeStatus(op.label, op.targetPath, op.value, readBack, ok = true)
         }
 
         repeat(retries + 1) {
             op.asSequentialCommands().forEach { executor.executeAsRoot(it) }
             readBack = readSysfsValue(op.targetPath)
-            if (readBack == op.value) {
+            if (isApplied(op.value, readBack)) {
                 return HardwareNodeStatus(op.label, op.targetPath, op.value, readBack, ok = true)
             }
         }
         return HardwareNodeStatus(op.label, op.targetPath, op.value, readBack, ok = false)
+    }
+
+    /**
+     * Decide se uma escrita "pegou", comparando o pedido com o que o nó devolve.
+     *
+     * Antes era uma igualdade exata de strings, e isso gerava FALSOS NEGATIVOS constantes: estes
+     * nós são LIMITES MÁXIMOS cujos valores têm de existir na tabela de OPPs do kernel. Ao pedir
+     * um valor intermédio, o driver assenta na frequência suportada mais próxima e a leitura
+     * devolve um número diferente do pedido -- ainda que o limite esteja perfeitamente aplicado.
+     * Era esta a origem dos avisos "Não foi possível aplicar: cpu-perf-policy-0 / gpu-max-clock"
+     * a repetirem-se em ciclo enquanto o aparelho estava, de facto, limitado.
+     *
+     * Critério correto para um teto: o valor efetivo não pode ficar ACIMA do pedido. Assentar
+     * abaixo é sucesso. Toleramos 2% acima para o caso de o driver arredondar para o OPP
+     * imediatamente superior. Se o valor lido continuar bem acima, a escrita falhou mesmo (nó
+     * bloqueado, ou outro daemon a repor o valor de fábrica) e aí sim reportamos.
+     */
+    private fun isApplied(requested: String, readBack: String?): Boolean {
+        if (readBack == null) return false
+        if (readBack == requested) return true
+
+        val requestedValue = requested.toLongOrNull() ?: return false
+        val actualValue = readBack.toLongOrNull() ?: return false
+        return actualValue <= (requestedValue * 102) / 100
     }
 
     private fun readSysfsValue(path: String): String? {

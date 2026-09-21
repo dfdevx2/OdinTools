@@ -86,7 +86,7 @@ Foreground-app detection runs through an accessibility service, with a `UsageSta
 
 ## Requirements
 
-- AYN Odin 3.
+- AYN Odin 3 is the main device serveral tested, but other AYN devices and Retroid should work.
 - The `PServerBinder` helper available on the device (present on stock AYN firmware).
 - Permissions granted at first launch: **Usage Access** (foreground-app detection) and **Display over other apps** (the in-game overlay).
 

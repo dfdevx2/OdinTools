@@ -37,6 +37,9 @@ import javax.inject.Inject
  */
 private const val LIVE_APPLY_DEBOUNCE_MS = 70L
 
+/** Intervalo mínimo entre avisos repetidos sobre o MESMO nó de hardware. */
+private const val HARDWARE_ERROR_COOLDOWN_MS = 5 * 60 * 1000L
+
 /**
  * Aparelhos em que o mecanismo de controlo desta app (PServerBinder + sysfs) é conhecido por
  * funcionar. Fora desta lista mostramos o aviso de incompatibilidade -- mas o Odin 3, que é o
@@ -74,6 +77,7 @@ class MainViewModel @Inject constructor(
     private val _hardwareErrorEvents = Channel<String>(Channel.BUFFERED)
     val hardwareErrorEvents = _hardwareErrorEvents.receiveAsFlow()
     private var lastFailingHardwareLabels: Set<String> = emptySet()
+    private val hardwareErrorLastShown = mutableMapOf<String, Long>()
 
     init {
         val deviceType = deviceUtils.getDeviceType()
@@ -171,10 +175,22 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             performanceManager.lastApplyStatus.collect { statuses ->
                 val failingLabels = statuses.filterNot { it.ok }.map { it.label }.toSet()
-                val newlyFailing = failingLabels - lastFailingHardwareLabels
-                if (newlyFailing.isNotEmpty()) {
+
+                // O daemon de hardware reescreve os limites a cada segundo. Se um nó estiver
+                // mesmo bloqueado, ele falha a cada tick -- e como o estado alterna entre "ok" e
+                // "falhou" conforme outro daemon do sistema repõe o valor, o aviso reaparecia sem
+                // parar, tapando a interface. Cada nó só pode avisar uma vez por
+                // HARDWARE_ERROR_COOLDOWN_MS; o resto vai só para o log.
+                val now = System.currentTimeMillis()
+                val toReport = (failingLabels - lastFailingHardwareLabels).filter { label ->
+                    val lastShown = hardwareErrorLastShown[label] ?: 0L
+                    now - lastShown >= HARDWARE_ERROR_COOLDOWN_MS
+                }
+
+                if (toReport.isNotEmpty()) {
+                    toReport.forEach { hardwareErrorLastShown[it] = now }
                     _hardwareErrorEvents.trySend(
-                        "Não foi possível aplicar: ${newlyFailing.joinToString(", ")}"
+                        "Não foi possível aplicar: ${toReport.joinToString(", ")}"
                     )
                 }
                 lastFailingHardwareLabels = failingLabels

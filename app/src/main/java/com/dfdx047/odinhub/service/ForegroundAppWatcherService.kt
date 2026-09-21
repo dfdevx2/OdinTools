@@ -91,6 +91,25 @@ class ForegroundAppWatcherService : AccessibilityService() {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
         val pkg = event.packageName?.toString() ?: return
+
+        // BUG RELATADO: "clico na barrinha, o overlay abre e some, e não volta mais".
+        //
+        // Ao expandir, o painel do overlay larga o FLAG_NOT_FOCUSABLE para poder receber toques
+        // (ver QuickAccessOverlay.applyGeometry). Uma janela focável ROUBA o foco ao jogo, e o
+        // sistema emite um TYPE_WINDOW_STATE_CHANGED com o pacote... desta própria app. O tracker
+        // via o nosso pacote, concluía "isto não é um jogo", punha isGameForeground a false, e o
+        // overlay escondia-se a si próprio no instante em que era aberto. Depois não voltava
+        // porque o jogo, ao recuperar o foco, não emite necessariamente um novo evento de
+        // mudança de janela -- daí ser preciso sair e voltar a entrar no jogo.
+        //
+        // A janela do overlay não é "mudar de app": é a nossa própria UI por cima do jogo. Por
+        // isso ignoramos o evento por completo e deixamos o estado como está. A única exceção é
+        // a MainActivity: aí o utilizador saiu MESMO do jogo para dentro do Odin Hub.
+        if (pkg == packageName) {
+            val className = event.className?.toString().orEmpty()
+            if (!className.contains("MainActivity")) return
+        }
+
         if (pkg == currentApp) return
         currentApp = pkg
 

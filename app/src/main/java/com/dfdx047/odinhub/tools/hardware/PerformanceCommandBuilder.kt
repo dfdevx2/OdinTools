@@ -8,7 +8,28 @@ package com.dfdx047.odinhub.tools.hardware
 data class CpuPolicyNode(
     val policyPath: String,
     val cpuinfoMaxFreqKHz: Long,
+    /**
+     * Frequências que esta política REALMENTE aceita (a tabela de OPPs do kernel, lida de
+     * `scaling_available_frequencies`). Vazia quando o nó não pôde ser lido.
+     *
+     * Sem isto escrevíamos valores arbitrários (`max * ratio`, ex: 1 071 000 kHz) que não existem
+     * na tabela; o kernel aceitava a escrita mas assentava na frequência suportada mais próxima,
+     * a leitura de verificação não batia certo com o pedido, e o resultado era reportado como
+     * FALHA -- daí os avisos "Não foi possível aplicar: cpu-perf-policy-0" a aparecerem sem parar
+     * enquanto, na prática, o limite estava a ser aplicado.
+     */
+    val availableFreqsKHz: List<Long> = emptyList(),
 )
+
+/**
+ * Encaixa um alvo na lista de valores realmente suportados, escolhendo o maior valor que não
+ * ultrapassa o alvo (é um LIMITE máximo: arredondar para cima furaria o limite pedido). Se o alvo
+ * ficar abaixo de tudo, usa o menor suportado. Sem lista, devolve o alvo inalterado.
+ */
+fun snapToSupported(target: Long, supported: List<Long>): Long {
+    if (supported.isEmpty()) return target
+    return supported.filter { it <= target }.maxOrNull() ?: supported.min()
+}
 
 /**
  * Uma escrita atómica num nó de sysfs, desenhada à volta do padrão "desbloquear (666) -> escrever
@@ -94,9 +115,12 @@ object PerformanceCommandBuilder {
         return sorted.mapIndexed { index, node ->
             val isPrime = index == sorted.lastIndex
             val ratio = (if (isPrime) primeRatio else perfRatio).coerceIn(minRatio, CPU_MAX_RATIO)
-            val targetFreqKHz = (node.cpuinfoMaxFreqKHz * ratio)
+            val rawTargetKHz = (node.cpuinfoMaxFreqKHz * ratio)
                 .toLong()
                 .coerceIn(1L, node.cpuinfoMaxFreqKHz)
+            // Encaixa na tabela de OPPs do kernel: escrevemos um valor que existe mesmo, por isso
+            // a leitura de verificação passa a bater certo em vez de reportar uma falsa falha.
+            val targetFreqKHz = snapToSupported(rawTargetKHz, node.availableFreqsKHz)
             buildWriteOp(
                 label = if (isPrime) "cpu-prime-policy" else "cpu-perf-policy-$index",
                 path = "${node.policyPath}/scaling_max_freq",
