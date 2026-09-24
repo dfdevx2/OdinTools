@@ -42,5 +42,18 @@ data class AppOverrideEntity(
     // ReShade & Pós-processamento de Cor
     val reshadeProfile: String = "Nenhum", // Vibrante, Cinema, Retrô, HDR Boost, etc.
     val saturationOverride: Float = 1.0f,  // 0.0f a 2.0f
-    val temperatureOverride: Float = 6500f // 4000K a 9000K
+    val temperatureOverride: Float = 6500f, // 4000K a 9000K
+
+    // v6: calibração de cor por jogo. Só vale quando `displayOverride` = true; caso contrário o
+    // jogo usa a saturação/temperatura globais (aba Display). Os dois campos acima já existiam
+    // mas nunca eram aplicados ao ecrã (só iam para a ponte do motor gráfico, que está desligada).
+    val displayOverride: Boolean = false,
+
+    // v6: limite térmico por jogo (ver ThermalLimitModes). `null` = segue o global.
+    val thermalMode: String? = null,
+
+    // v7: macros de M1/M2 por jogo (ver MacroMode): null = segue o global, "" = desligada
+    // (mapeamento nativo), passos codificados = macro própria deste jogo.
+    val m1Macro: String? = null,
+    val m2Macro: String? = null,
 )

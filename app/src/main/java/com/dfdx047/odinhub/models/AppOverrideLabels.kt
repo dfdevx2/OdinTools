@@ -16,35 +16,30 @@ package com.dfdx047.odinhub.models
  */
 object AppOverrideLabels {
 
-    /** Os MESMOS watts usados pelo overlay, pelo ecrã global de Settings e pelo de overrides. */
-    val namedTdpProfiles: List<Pair<String, Float>> = listOf(
-        "Power Save" to 5f,
-        "Balanced" to 10f,
-        "Triple A" to 15f,
-        "Stock" to 25f,
-    )
-
     /**
-     * O rótulo inclui SEMPRE os watts, e nunca é apenas "Stock".
+     * Rótulo do limite de TDP guardado numa regra por jogo.
      *
-     * BUG QUE ISTO EVITA: o `AppOverrideMapper` usa a string literal "Stock" como sentinela de
-     * "este jogo não tem limite personalizado" e esconde-a do subtítulo da lista. Como o preset de
-     * 25 W também se chama "Stock", uma regra real de 25 W ficava indistinguível de "sem regra" e
-     * a lista mostrava "Sem limites customizados (Stock)" para um jogo que tinha, de facto, um
-     * limite configurado. Com "Stock (25W)" a colisão desaparece.
+     * Os watts vêm SEMPRE de [TdpProfiles] (a única fonte de verdade dos perfis). Um valor abaixo
+     * do mínimo do slider é a sentinela de "Stock (sem limite)" -- ver
+     * [TdpProfiles.STOCK_SENTINEL_WATTS] -- e devolve exatamente "Stock", que é o que o
+     * `AppOverrideMapper` usa para esconder o campo do subtítulo: "sem limite" e "sem regra"
+     * são, para a lista de jogos, a mesma coisa. Qualquer outro valor inclui os watts, para que
+     * um perfil e um valor livre com os mesmos watts se descrevam da mesma maneira em todos os
+     * ecrãs.
      */
     fun tdpLabel(watts: Float): String {
-        val named = namedTdpProfiles.firstOrNull { it.second == watts }?.first
-        return if (named != null) "$named (${watts.toInt()}W)" else "Custom (${watts.toInt()}W)"
+        if (TdpProfiles.isStockWatts(watts)) return "Stock"
+        val named = TdpProfiles.byId(TdpProfiles.idForWatts(watts))
+        val formatted = TdpProfiles.formatWatts(watts)
+        return if (named != null) "${named.labelEn} ($formatted)" else "Custom ($formatted)"
     }
 
-    /** Idem: nunca devolve exatamente "Stock", pela mesma razão explicada em [tdpLabel]. */
-    fun clockLabel(perfMHz: Float, primeMHz: Float): String {
-        val named = CombinedClockProfiles.all
-            .firstOrNull { it.perfClockMHz == perfMHz && it.primeClockMHz == primeMHz }
-            ?.label
-        return named ?: "Custom (${perfMHz.toInt()}/${primeMHz.toInt()} MHz)"
-    }
+    /**
+     * Clocks manuais: os perfis combinados de clocks deixaram de existir (só há perfis de TDP),
+     * por isso o rótulo é sempre os valores numéricos reais. Nunca devolve exatamente "Stock".
+     */
+    fun clockLabel(perfMHz: Float, primeMHz: Float): String =
+        "${perfMHz.toInt()}/${primeMHz.toInt()} MHz"
 
     fun fanLabel(settingsValue: Int): String = FanMode.fromSettingsValue(settingsValue).shortLabel
 }

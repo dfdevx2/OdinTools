@@ -64,6 +64,6 @@ class AppOverrideMapper @Inject constructor(
             if (tdp != "Stock") append("TDP: $tdp | ")
             if (clock != "Stock") append("Clock: $clock | ")
             if (fan != "Stock") append("Fan: $fan | ")
-        }.trimEnd(' ', '|').ifEmpty { "Sem limites customizados (Stock)" }
+        }.trimEnd(' ', '|').ifEmpty { "Stock" }
     }
 }

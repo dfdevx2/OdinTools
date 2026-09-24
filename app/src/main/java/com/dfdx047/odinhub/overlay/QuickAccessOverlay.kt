@@ -17,7 +17,9 @@ import com.dfdx047.odinhub.data.AppOverrideRepository
 import com.dfdx047.odinhub.data.SharedPrefsRepo
 import com.dfdx047.odinhub.tools.ForegroundAppTracker
 import com.dfdx047.odinhub.tools.hardware.LosslessManager
+import com.dfdx047.odinhub.tools.hardware.DisplayManager
 import com.dfdx047.odinhub.tools.hardware.PerformanceManager
+import com.dfdx047.odinhub.tools.hardware.ThermalManager
 import com.dfdx047.odinhub.ui.theme.AvailableThemes
 import com.dfdx047.odinhub.ui.theme.getResolvedTheme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,7 +37,10 @@ class QuickAccessOverlay(
     private val overrideRepository: AppOverrideRepository,
     // Diz em que jogo estamos (e se o puxador deve estar visível). É o que permite à composição
     // deste overlay re-chavear por jogo -- ver ForegroundAppTracker.
-    private val foregroundTracker: ForegroundAppTracker
+    private val foregroundTracker: ForegroundAppTracker,
+    private val thermalManager: ThermalManager,
+    private val displayManager: DisplayManager,
+    private val buttonActions: com.dfdx047.odinhub.tools.ButtonActionHandler,
 ) {
     private val windowManager = context.getSystemService<WindowManager>()
     private val main = Handler(Looper.getMainLooper())
@@ -86,6 +91,9 @@ class QuickAccessOverlay(
                     prefs = prefs,
                     isDllReady = isDllReady,
                     performanceManager = performanceManager,
+                    thermalManager = thermalManager,
+                    displayManager = displayManager,
+                    buttonActions = buttonActions,
                     overrideRepository = overrideRepository,
                     currentPackage = currentPackage,
                     overridesByPackage = overridesByPackage,
@@ -180,6 +188,12 @@ class QuickAccessOverlay(
         if (expanded) {
             lp.flags = WindowManager.LayoutParams.FLAG_DIM_BEHIND or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             lp.dimAmount = 0.4f
+            // Vidro fosco real: desfoca o jogo por trás do painel (Android 12+, quando o sistema
+            // tem o blur entre janelas ativo -- caso contrário fica só o escurecimento normal).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && windowManager?.isCrossWindowBlurEnabled == true) {
+                lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                lp.blurBehindRadius = (24 * density).toInt()
+            }
             lp.gravity = Gravity.TOP or Gravity.END
             lp.width = (390 * density).toInt()
             lp.height = WindowManager.LayoutParams.MATCH_PARENT
@@ -187,6 +201,7 @@ class QuickAccessOverlay(
         } else {
             lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             lp.dimAmount = 0f
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) lp.blurBehindRadius = 0
             lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
             lp.width = (prefs.overlayHandleWidth.coerceIn(16, 36) * density).toInt()
             lp.height = (70 * density).toInt()

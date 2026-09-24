@@ -1,7 +1,9 @@
 package com.dfdx047.odinhub.tools.hardware
 
 import android.util.Log
+import com.dfdx047.odinhub.models.ClusterClockPresets
 import com.dfdx047.odinhub.models.FanMode
+import com.dfdx047.odinhub.models.TdpProfiles
 import com.dfdx047.odinhub.tools.ShellExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,15 +38,38 @@ class PerformanceManager @Inject constructor(
     private var hardwareJob: Job? = null
 
     private val sysfsGpuMaxPath = "/sys/class/kgsl/kgsl-3d0/max_gpuclk"
-    private val gpuMaxHz = 1_100_000_000L
-    private val gpuMinHz = 160_000_000L
+
+    /**
+     * Máximo/mínimo da GPU derivados da tabela REAL de frequências do kgsl quando ela é legível
+     * (antes eram 1.1 GHz / 160 MHz fixos, valores do 8 Elite que estão errados no Odin 2). Se
+     * nada for legível, cai na tabela estática por SoC ([clockTables] com source "fallback") e,
+     * em último caso, nos valores do 8 Elite.
+     */
+    private val gpuMaxHz: Long
+        get() = gpuAvailableFreqsHz.maxOrNull()
+            ?: _clockTables.value.gpuMHz.maxOrNull()?.let { it * 1_000_000L }
+            ?: DEFAULT_GPU_MAX_HZ
+    private val gpuMinHz: Long
+        get() = gpuAvailableFreqsHz.minOrNull()
+            ?: _clockTables.value.gpuMHz.minOrNull()?.let { it * 1_000_000L }
+            ?: DEFAULT_GPU_MIN_HZ
 
     private var targetPerfPercent = 1.0f
     private var targetPrimePercent = 1.0f
-    private var targetGpu = gpuMaxHz
+    // Arranca no máximo do 8 Elite; a escrita encaixa sempre no OPP suportado mais alto por
+    // baixo (snapToSupported), por isso noutro SoC isto significa simplesmente "máximo".
+    private var targetGpu = DEFAULT_GPU_MAX_HZ
 
     private var isAutoTdp = false
     private var targetWatts = 15f
+
+    /**
+     * Tabelas de frequências reais do SoC (OPPs do kernel), em MHz, para a UI desenhar chips com
+     * valores que o hardware suporta mesmo. Preenchidas uma vez, em Dispatchers.IO, no arranque
+     * (ver [loadClockTables]); até lá é [ClockTables.EMPTY].
+     */
+    private val _clockTables = MutableStateFlow(ClockTables.EMPTY)
+    val clockTables: StateFlow<ClockTables> = _clockTables.asStateFlow()
 
     /**
      * Estado da última passada de aplicação de limites, um item por nó de sysfs tocado.
@@ -56,8 +81,73 @@ class PerformanceManager @Inject constructor(
     private val _lastApplyStatus = MutableStateFlow<List<HardwareNodeStatus>>(emptyList())
     val lastApplyStatus: StateFlow<List<HardwareNodeStatus>> = _lastApplyStatus.asStateFlow()
 
+    /**
+     * Frequências que a GPU Adreno aceita. Mesmo problema dos clusters de CPU: escrever um valor
+     * arbitrário em `max_gpuclk` faz o driver assentar no OPP mais próximo, e a verificação por
+     * leitura reportava isso como falha ("Não foi possível aplicar: gpu-max-clock").
+     *
+     * Declarado ANTES do `init` de propósito: o daemon e o carregamento das tabelas arrancam em
+     * Dispatchers.IO a partir do `init`, e um delegate `lazy` declarado depois do `init` ainda
+     * não estaria atribuído se a coroutine corresse antes de o construtor terminar.
+     */
+    private val gpuAvailableFreqsHz: List<Long> by lazy {
+        listOf(
+            "/sys/class/kgsl/kgsl-3d0/gpu_available_frequencies",
+            "/sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies",
+        ).asSequence()
+            .map { readAvailableFreqs(File(it)) }
+            .firstOrNull { it.isNotEmpty() }
+            .orEmpty()
+    }
+
     init {
+        scope.launch { loadClockTables() }
         startHardwareDaemon()
+    }
+
+    /**
+     * Lê as tabelas de OPPs: `scaling_available_frequencies` de cada política de cpufreq (a
+     * política com maior `cpuinfo_max_freq` é o Prime; a seguinte é o Perf) e `gpu_available_frequencies` do kgsl. Estes nós são normalmente legíveis por
+     * qualquer utilizador, sem root. Se nada for legível, usa a tabela estática por SoC de
+     * `ClusterClockPresets` e marca `source = "fallback"`. Nunca lança: uma falha aqui só
+     * significa chips de reserva na UI.
+     */
+    private fun loadClockTables() {
+        val fallback = ClusterClockPresets.fallbackFor(
+            socModel = runCatching { android.os.Build.SOC_MODEL }.getOrNull(),
+            hardware = runCatching { android.os.Build.HARDWARE }.getOrNull(),
+        )
+        val loaded = runCatching {
+            val sorted = getCpuPolicies().sortedBy { it.cpuinfoMaxFreqKHz }
+            val prime = sorted.lastOrNull()?.availableFreqsKHz.orEmpty()
+            // Perf = a política logo abaixo do Prime (a mesma que absoluteClocksToRatios usa como
+            // 100%). Juntar TODAS as outras misturava, no 8 Gen 2, o cluster de eficiência
+            // (até 2016 MHz) com o de performance (até 2803 MHz) numa só fila de chips.
+            val perf = sorted.getOrNull(sorted.lastIndex - 1)?.availableFreqsKHz.orEmpty()
+            ClockTables(
+                perfMHz = ClockTableCuration.kHzToMHz(perf),
+                primeMHz = ClockTableCuration.kHzToMHz(prime),
+                gpuMHz = ClockTableCuration.hzToMHz(gpuAvailableFreqsHz),
+                source = ClockTables.SOURCE_KERNEL,
+            )
+        }.getOrElse {
+            Log.w(TAG, "loadClockTables: falha a ler as tabelas do kernel", it)
+            ClockTables.EMPTY
+        }
+
+        // Cada tabela cai individualmente na reserva: um kernel pode expor as do CPU e não a da
+        // GPU (ou vice-versa). `source` só fica "kernel" quando as três vieram do kernel.
+        val perf = loaded.perfMHz.ifEmpty { fallback.perfMHz }
+        val prime = loaded.primeMHz.ifEmpty { fallback.primeMHz }
+        val gpu = loaded.gpuMHz.ifEmpty { fallback.gpuMHz }
+        val allFromKernel = loaded.perfMHz.isNotEmpty() && loaded.primeMHz.isNotEmpty() && loaded.gpuMHz.isNotEmpty()
+        _clockTables.value = ClockTables(
+            perfMHz = perf,
+            primeMHz = prime,
+            gpuMHz = gpu,
+            source = if (allFromKernel) ClockTables.SOURCE_KERNEL else ClockTables.SOURCE_FALLBACK,
+        )
+        Log.i(TAG, "loadClockTables: perf=${perf.size} prime=${prime.size} gpu=${gpu.size} source=${_clockTables.value.source}")
     }
 
     private fun startHardwareDaemon() {
@@ -143,21 +233,6 @@ class PerformanceManager @Inject constructor(
         emptyList()
     }
 
-    /**
-     * Frequências que a GPU Adreno aceita. Mesmo problema dos clusters de CPU: escrever um valor
-     * arbitrário em `max_gpuclk` faz o driver assentar no OPP mais próximo, e a verificação por
-     * leitura reportava isso como falha ("Não foi possível aplicar: gpu-max-clock").
-     */
-    private val gpuAvailableFreqsHz: List<Long> by lazy {
-        listOf(
-            "/sys/class/kgsl/kgsl-3d0/gpu_available_frequencies",
-            "/sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies",
-        ).asSequence()
-            .map { readAvailableFreqs(File(it)) }
-            .firstOrNull { it.isNotEmpty() }
-            .orEmpty()
-    }
-
     private fun writeLimitsToSysfs() {
         val policies = getCpuPolicies()
         if (policies.isEmpty()) {
@@ -175,12 +250,13 @@ class PerformanceManager @Inject constructor(
             minRatio = if (isAutoTdp) {
                 PerformanceCommandBuilder.TDP_MIN_RATIO
             } else {
-                PerformanceCommandBuilder.CPU_MIN_RATIO
+                // Clocks manuais / Stock: cada chip é um OPP real, por isso o piso é mínimo.
+                PerformanceCommandBuilder.MANUAL_MIN_RATIO
             },
         ) + if (File(sysfsGpuMaxPath).exists()) {
             // Idem CPU: encaixa no OPP suportado mais próximo por baixo, para a verificação por
             // leitura deixar de acusar falha num limite que de facto foi aplicado.
-            val snappedGpuHz = snapToSupported(targetGpu, gpuAvailableFreqsHz)
+            val snappedGpuHz = snapToSupported(targetGpu, gpuAvailableFreqsHz, toleranceAbove = 999_999L)
             listOf(PerformanceCommandBuilder.buildGpuFrequencyOp(sysfsGpuMaxPath, snappedGpuHz))
         } else {
             emptyList()
@@ -258,12 +334,37 @@ class PerformanceManager @Inject constructor(
 
     fun applyDynamicTdp(watts: Float) {
         isAutoTdp = true
-        targetWatts = watts.coerceIn(3f, 25f)
+        // Intervalo do slider em todos os ecrãs: 1..25 W (ver TdpProfiles). O piso de clocks
+        // continua a ser TDP_MIN_RATIO -- 1 W é um alvo que o loop tenta perseguir, não uma
+        // promessa de que a CPU desce a 4%.
+        targetWatts = watts.coerceIn(TdpProfiles.TDP_MIN_WATTS, TdpProfiles.TDP_MAX_WATTS)
         val ratio = PerformanceCommandBuilder.wattsToRatio(targetWatts)
         targetPerfPercent = ratio
         targetPrimePercent = ratio
         targetGpu = (gpuMaxHz * ratio).toLong().coerceAtLeast(gpuMinHz)
         writeLimitsToSysfs()
+    }
+
+    /**
+     * Perfil "Stock" de TDP: sem limite nenhum. Clocks de CPU e GPU a 100% e o loop de AutoTDP
+     * DESLIGADO -- é o que distingue isto de "25 W": com 25 W o loop continua a correr e pode
+     * ainda travar os clocks se o consumo medido passar do alvo.
+     */
+    fun applyStockPerformance() {
+        isAutoTdp = false
+        targetPerfPercent = PerformanceCommandBuilder.CPU_MAX_RATIO
+        targetPrimePercent = PerformanceCommandBuilder.CPU_MAX_RATIO
+        targetGpu = gpuMaxHz
+        writeLimitsToSysfs()
+    }
+
+    /**
+     * Aplica uma seleção de TDP já resolvida (ver `TdpProfiles.resolveWatts`): `null` = Stock,
+     * qualquer outro valor = TDP dinâmico nesses watts. Ponto único de entrada para o Settings,
+     * o overlay e o ForegroundAppWatcherService, para os três se comportarem da mesma maneira.
+     */
+    fun applyTdpSelection(watts: Float?) {
+        if (watts == null || TdpProfiles.isStockWatts(watts)) applyStockPerformance() else applyDynamicTdp(watts)
     }
 
     fun applyAbsoluteClocks(perfClockKHz: Long, primeClockKHz: Long, gpuClockHz: Long) {
@@ -306,5 +407,9 @@ class PerformanceManager @Inject constructor(
 
     private companion object {
         const val TAG = "PerformanceManager"
+
+        /** Valores do 8 Elite, usados só quando nem o kernel nem a tabela por SoC respondem. */
+        const val DEFAULT_GPU_MAX_HZ = 1_100_000_000L
+        const val DEFAULT_GPU_MIN_HZ = 160_000_000L
     }
 }

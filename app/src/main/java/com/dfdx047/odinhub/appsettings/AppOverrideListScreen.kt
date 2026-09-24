@@ -1,5 +1,7 @@
 package com.dfdx047.odinhub.appsettings
 
+import com.dfdx047.odinhub.ui.theme.onPrimary
+import com.dfdx047.odinhub.ui.theme.backdropBottom
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,6 +40,7 @@ import com.dfdx047.odinhub.ui.theme.getResolvedTheme
 @Composable
 fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(), navigateToOverrides: (packageName: String) -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
+    val isEn by viewModel.isEnglish.collectAsState()
 
     // Antes este ecrã pintava tudo com cores fixas (fundo 0xFF0F1115, azul 0xFF1976D2) e era o
     // único da app a ignorar o motor de temas -- daí parecer "de outro aplicativo". Agora segue o
@@ -49,6 +52,7 @@ fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(),
         AppPickerDialog(
             apps = uiState.overrideCandidates,
             theme = theme,
+            isEn = isEn,
             onAppSelected = {
                 viewModel.dismissAppSelectDialog()
                 navigateToOverrides(it)
@@ -62,7 +66,7 @@ fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(),
         Box(
             modifier = Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
-                    colors = listOf(theme.background.copy(alpha = 0.4f), Color.Black.copy(alpha = 0.85f))
+                    colors = listOf(theme.background.copy(alpha = 0.4f), theme.backdropBottom)
                 )
             )
         )
@@ -74,7 +78,7 @@ fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(),
             item {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                    text = "REGRAS POR JOGO",
+                    text = if (isEn) "PER-GAME RULES" else "REGRAS POR JOGO",
                     color = theme.primary,
                     fontSize = 24.sp,
                     fontFamily = theme.fontFamily,
@@ -82,7 +86,7 @@ fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(),
                     letterSpacing = 1.sp,
                 )
                 Text(
-                    text = "Cada jogo guarda o seu próprio perfil. O que configurares no overlay em jogo aparece aqui.",
+                    text = if (isEn) "Each game keeps its own profile. Whatever you set in the in-game overlay shows up here." else "Cada jogo guarda o seu próprio perfil. O que configurares no overlay em jogo aparece aqui.",
                     color = theme.text.copy(alpha = 0.6f),
                     fontSize = 12.sp,
                     fontFamily = theme.fontFamily,
@@ -100,10 +104,10 @@ fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(),
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(16.dp)
                     ) {
-                        Icon(painterResource(id = R.drawable.ic_add), contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                        Icon(painterResource(id = R.drawable.ic_add), contentDescription = null, tint = theme.onPrimary, modifier = Modifier.size(28.dp))
                         Text(
-                            "Adicionar Novo Jogo",
-                            color = Color.White,
+                            if (isEn) "Add New Game" else "Adicionar Novo Jogo",
+                            color = theme.onPrimary,
                             fontFamily = theme.fontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
@@ -124,7 +128,7 @@ fun AppOverrideListScreen(viewModel: AppOverrideListViewModel = hiltViewModel(),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "Nenhuma regra ainda.\nAbre um jogo e ajusta algo no overlay — a regra é criada sozinha.",
+                            if (isEn) "No rules yet.\nOpen a game and change something in the overlay -- the rule is created automatically." else "Nenhuma regra ainda.\nAbre um jogo e ajusta algo no overlay — a regra é criada sozinha.",
                             color = theme.text.copy(alpha = 0.5f),
                             fontFamily = theme.fontFamily,
                             fontSize = 12.sp,
@@ -195,7 +199,7 @@ fun AppItem(
 }
 
 @Composable
-fun AppPickerDialog(apps: List<AppUiModel>, theme: ConsoleTheme, onAppSelected: (String) -> Unit, onDismiss: () -> Unit) {
+fun AppPickerDialog(apps: List<AppUiModel>, theme: ConsoleTheme, isEn: Boolean, onAppSelected: (String) -> Unit, onDismiss: () -> Unit) {
     var searchText by rememberSaveable { mutableStateOf("") }
     val filteredApps = apps.filter {
         it.appName.contains(searchText, ignoreCase = true) || it.packageName.contains(searchText, ignoreCase = true)
@@ -204,13 +208,13 @@ fun AppPickerDialog(apps: List<AppUiModel>, theme: ConsoleTheme, onAppSelected: 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = theme.surface,
-        title = { Text("Selecione um Jogo", color = theme.text, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold) },
+        title = { Text(if (isEn) "Select a Game" else "Selecione um Jogo", color = theme.text, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 OutlinedTextField(
                     value = searchText,
                     onValueChange = { searchText = it },
-                    placeholder = { Text("Procurar...", color = theme.text.copy(alpha = 0.5f)) },
+                    placeholder = { Text(if (isEn) "Search..." else "Procurar...", color = theme.text.copy(alpha = 0.5f)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -235,7 +239,7 @@ fun AppPickerDialog(apps: List<AppUiModel>, theme: ConsoleTheme, onAppSelected: 
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar", color = theme.primary, fontFamily = theme.fontFamily) }
+            TextButton(onClick = onDismiss) { Text(if (isEn) "Cancel" else "Cancelar", color = theme.primary, fontFamily = theme.fontFamily) }
         }
     )
 }

@@ -8,7 +8,9 @@ import com.dfdx047.odinhub.data.AppOverrideRepository
 import com.dfdx047.odinhub.data.SharedPrefsRepo
 import com.dfdx047.odinhub.overlay.QuickAccessOverlay
 import com.dfdx047.odinhub.tools.ForegroundAppTracker
+import com.dfdx047.odinhub.tools.hardware.DisplayManager
 import com.dfdx047.odinhub.tools.hardware.PerformanceManager
+import com.dfdx047.odinhub.tools.hardware.ThermalManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import javax.inject.Inject
@@ -35,6 +37,14 @@ class GamingOverlayService : Service() {
     @Inject
     lateinit var foregroundTracker: ForegroundAppTracker
 
+    // Limite térmico e cor do ecrã por jogo, ajustáveis a partir do overlay.
+    @Inject
+    lateinit var thermalManager: ThermalManager
+    @Inject
+    lateinit var displayManager: DisplayManager
+    @Inject
+    lateinit var buttonActions: com.dfdx047.odinhub.tools.ButtonActionHandler
+
     private var overlay: QuickAccessOverlay? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -47,7 +57,7 @@ class GamingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        overlay = QuickAccessOverlay(this, prefs, performanceManager, overrideRepository, foregroundTracker)
+        overlay = QuickAccessOverlay(this, prefs, performanceManager, overrideRepository, foregroundTracker, thermalManager, displayManager, buttonActions)
 
         scope.launch {
             toggleOverlayFlow.collect {

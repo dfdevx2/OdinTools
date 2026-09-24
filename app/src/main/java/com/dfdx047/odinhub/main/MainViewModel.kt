@@ -8,7 +8,11 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.dfdx047.odinhub.data.SharedPrefsRepo
+import com.dfdx047.odinhub.models.ButtonMacros
 import com.dfdx047.odinhub.models.FanMode
+import com.dfdx047.odinhub.models.HomeGestureConfig
+import com.dfdx047.odinhub.models.MacroStep
+import com.dfdx047.odinhub.models.TdpProfiles
 import com.dfdx047.odinhub.service.GamingOverlayService
 import com.dfdx047.odinhub.tools.DeviceType
 import com.dfdx047.odinhub.tools.DeviceUtils
@@ -19,6 +23,7 @@ import com.dfdx047.odinhub.tools.hardware.LosslessManager
 import com.dfdx047.odinhub.tools.SoundManager
 import com.dfdx047.odinhub.tools.hardware.VulkanNativeBridge
 import com.dfdx047.odinhub.tools.hardware.PerformanceManager
+import com.dfdx047.odinhub.tools.hardware.ThermalManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -59,8 +64,10 @@ class MainViewModel @Inject constructor(
     private val deviceUtils: DeviceUtils,
     private val executor: ShellExecutor,
     private val settings: SettingsRepo,
+    private val buttonActions: com.dfdx047.odinhub.tools.ButtonActionHandler,
     private val prefs: SharedPrefsRepo,
     private val performanceManager: PerformanceManager,
+    private val thermalManager: ThermalManager,
     private val displayManager: DisplayManager,
     private val losslessManager: LosslessManager,
     private val soundManager: SoundManager
@@ -92,12 +99,15 @@ class MainViewModel @Inject constructor(
                 // "incompatível" e recebia o aviso.
                 showIncompatibleDeviceDialog = deviceType !in SUPPORTED_DEVICES,
                 showPServerNotAvailableDialog = !executor.pServerAvailable,
-                singlePressHomeEnabled = !settings.preventPressHome,
+                homeGestures = prefs.homeGestureConfig,
+                m1MacroEnabled = prefs.macroEnabled("m1"),
+                m1MacroSteps = ButtonMacros.decode(prefs.macroSteps("m1")),
+                m2MacroEnabled = prefs.macroEnabled("m2"),
+                m2MacroSteps = ButtonMacros.decode(prefs.macroSteps("m2")),
                 appOverridesEnabled = prefs.appOverridesEnabled,
 
                 selectedThemeIndex = prefs.selectedThemeIndex,
                 useAmoledBlack = prefs.useAmoledBlack,
-                useRootTarget = prefs.useRootTarget,
                 fanMode = prefs.fanMode,
                 customProfiles = prefs.getAllCustomProfiles(),
 
@@ -108,6 +118,7 @@ class MainViewModel @Inject constructor(
                 // o ecrã mostrava.
                 activeLimitMode = prefs.activeLimitMode,
                 tdpValue = prefs.tdpValue,
+                tdpProfileId = prefs.tdpProfileId,
                 cpuPerfClock = prefs.cpuPerfClock,
                 cpuPrimeClock = prefs.cpuPrimeClock,
                 gpuClock = prefs.gpuClock,
@@ -142,11 +153,6 @@ class MainViewModel @Inject constructor(
             )
         }
 
-        // Restaura a escolha de canal root logo no arranque -- caso contrário o interruptor
-        // aparecia ligado na UI, mas o executor continuava a usar o PServer até o utilizador
-        // voltar a mexer nele.
-        executor.preferSuBinary = prefs.useRootTarget
-
         soundManager.startBackgroundMusicIfEnabled()
 
         // O motor gráfico (camada Vulkan real para ReShade/SGSR/LSFG) foi removido -- não estava
@@ -161,9 +167,12 @@ class MainViewModel @Inject constructor(
             settings.applyRequiredSettings()
         }
 
-        VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
-        VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
-        VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+        // Motor gráfico: só quando existir (FeatureFlags) -- evita carregar a biblioteca nativa à toa.
+        if (com.dfdx047.odinhub.models.FeatureFlags.GRAPHICS_ENGINE_AVAILABLE) {
+            VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
+            VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
+            VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+        }
 
         if (prefs.overlayEnabled) {
             context.startService(Intent(context, GamingOverlayService::class.java))
@@ -190,10 +199,24 @@ class MainViewModel @Inject constructor(
                 if (toReport.isNotEmpty()) {
                     toReport.forEach { hardwareErrorLastShown[it] = now }
                     _hardwareErrorEvents.trySend(
-                        "Não foi possível aplicar: ${toReport.joinToString(", ")}"
+                        (if (prefs.isEnglish) "Could not apply: " else "Não foi possível aplicar: ") + toReport.joinToString(", ")
                     )
                 }
                 lastFailingHardwareLabels = failingLabels
+            }
+        }
+
+        // Tabelas reais de frequências (OPPs do kernel) e estado do limite térmico: copiados
+        // para o uiState para os chips de clocks e o cartão térmico se desenharem a partir do
+        // mesmo objeto que o overlay lê diretamente do PerformanceManager.
+        viewModelScope.launch {
+            performanceManager.clockTables.collect { tables ->
+                _uiState.update { it.copy(clockTables = tables) }
+            }
+        }
+        viewModelScope.launch {
+            thermalManager.status.collect { status ->
+                _uiState.update { it.copy(thermalStatus = status) }
             }
         }
     }
@@ -205,16 +228,6 @@ class MainViewModel @Inject constructor(
     }
 
     fun updateOverlayPanelOpacity(opacity: Float) { prefs.overlayPanelOpacity = opacity; _uiState.update { it.copy(overlayPanelOpacity = opacity) } }
-    /**
-     * Este interruptor era decorativo: escrevia `prefs.useRootTarget` e mais nada -- nenhum sítio
-     * do projeto lia a preferência, por isso ligá-lo não mudava o caminho usado para falar com o
-     * hardware. Agora empurra a escolha para o [ShellExecutor], que passa a executar via `su -c`.
-     */
-    fun updateUseRootTarget(enabled: Boolean) {
-        prefs.useRootTarget = enabled
-        executor.preferSuBinary = enabled
-        _uiState.update { it.copy(useRootTarget = enabled) }
-    }
     fun updateFanMode(mode: Int) { prefs.fanMode = mode; _uiState.update { it.copy(fanMode = mode) }; viewModelScope.launch(Dispatchers.IO) { performanceManager.applyFanMode(FanMode.fromSettingsValue(mode)) } }
     /**
      * CAUSA RAIZ do "mexo no Settings e nada fica": esta função só mudava o `_uiState`. O modo
@@ -229,7 +242,9 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val current = _uiState.value
             if (mode == "TDP") {
-                performanceManager.applyDynamicTdp(current.tdpValue)
+                // O perfil de TDP é o "mestre": Stock = sem limite, perfil fixo = os seus watts,
+                // "custom" = o slider. Nunca os clocks manuais -- os dois modos não se misturam.
+                performanceManager.applyTdpSelection(TdpProfiles.resolveWatts(current.tdpProfileId, current.tdpValue))
             } else {
                 performanceManager.applyAbsoluteClocks(
                     (current.cpuPerfClock * 1000).toLong(),
@@ -260,14 +275,46 @@ class MainViewModel @Inject constructor(
     // durante a sessão, mas: (a) ao trocar de app, o watcher reaplicava o valor antigo do prefs
     // por cima, e (b) ao reabrir a app, a UI voltava aos valores por omissão. Era este o "mexo e
     // não fica" da aba Performance.
+    /**
+     * Slider de TDP (1..25 W). Mover o slider aplica o valor do slider e passa a seleção para
+     * "custom": nenhum chip de perfil fica destacado. Os perfis são independentes do slider --
+     * ver [selectTdpProfile].
+     */
     fun updateTdp(watts: Float) {
-        prefs.tdpValue = watts
-        _uiState.update { it.copy(tdpValue = watts) }
+        val clamped = watts.coerceIn(TdpProfiles.TDP_MIN_WATTS, TdpProfiles.TDP_MAX_WATTS)
+        prefs.tdpValue = clamped
+        prefs.tdpProfileId = TdpProfiles.ID_CUSTOM
+        _uiState.update { it.copy(tdpValue = clamped, tdpProfileId = TdpProfiles.ID_CUSTOM) }
         tdpJob?.cancel()
         tdpJob = viewModelScope.launch(Dispatchers.IO) {
             delay(LIVE_APPLY_DEBOUNCE_MS)
-            performanceManager.applyDynamicTdp(watts)
+            performanceManager.applyDynamicTdp(clamped)
         }
+    }
+
+    /**
+     * Seleciona um perfil fixo de TDP (Power Save / Balanced / Triple A / Stock) e aplica os
+     * seus watts exatos; Stock = sem limite (clocks a 100%, AutoTDP desligado). O slider é
+     * movido para os watts do perfil só para refletir o que está a ser aplicado.
+     */
+    fun selectTdpProfile(profileId: String) {
+        val profile = TdpProfiles.byId(profileId) ?: return
+        prefs.tdpProfileId = profile.id
+        profile.watts?.let { prefs.tdpValue = it }
+        _uiState.update { it.copy(tdpProfileId = profile.id, tdpValue = profile.watts ?: it.tdpValue) }
+        tdpJob?.cancel()
+        tdpJob = viewModelScope.launch(Dispatchers.IO) {
+            performanceManager.applyTdpSelection(profile.watts)
+        }
+    }
+
+    /**
+     * Perfil de TDP guardado pelo utilizador (prefs.saveCustomProfile, tipo "TDP"): aplica os
+     * watts guardados e marca a seleção como "custom" com esse valor -- o chip do preset
+     * destaca-se por igualdade de watts.
+     */
+    fun selectCustomTdpProfile(watts: Float) {
+        updateTdp(watts)
     }
 
     fun updateManualClocks(perfClock: Float, primeClock: Float, gpuClock: Float) {
@@ -287,6 +334,12 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(customProfiles = prefs.getAllCustomProfiles()) }
     }
 
+    // Limite térmico (root) -- ver ThermalManager. As escritas correm no scope do próprio
+    // gestor (IO); aqui só encaminhamos a escolha. O estado volta pelo StateFlow coletado no init.
+    fun updateThermalLimitMode(mode: String) = thermalManager.setMode(mode)
+    fun updateThermalDisableZoneMode(enabled: Boolean) = thermalManager.setDisableZoneMode(enabled)
+    fun refreshThermalZones() = thermalManager.refresh()
+
     // Música de fundo e efeitos sonoros da UI (ver SoundManager). O código que tocava estes
     // sons foi perdido numa refatoração anterior da interface; os ficheiros em res/raw
     // continuavam no projeto, só faltava quem os tocasse e os controlos persistentes.
@@ -295,6 +348,10 @@ class MainViewModel @Inject constructor(
     fun updateBgmVolume(volume: Float) { soundManager.setBgmVolume(volume); _uiState.update { it.copy(bgmVolume = volume) } }
     fun updateSfxEnabled(enabled: Boolean) { soundManager.setSfxEnabled(enabled); _uiState.update { it.copy(sfxEnabled = enabled) } }
     fun updateSfxVolume(volume: Float) { soundManager.setSfxVolume(volume); _uiState.update { it.copy(sfxVolume = volume) } }
+
+    /** Idioma da UI, persistido e partilhado com overlay/editor por app (ver SharedPrefsRepo.isEnglish). */
+    val isEnglish: StateFlow<Boolean> get() = prefs.isEnglishFlow
+    fun setLanguage(english: Boolean) { prefs.isEnglish = english }
 
     fun updateThemeIndex(newIndex: Int) { prefs.selectedThemeIndex = newIndex; _uiState.update { it.copy(selectedThemeIndex = newIndex) } }
     fun updateAmoledBlack(enabled: Boolean) { prefs.useAmoledBlack = enabled; _uiState.update { it.copy(useAmoledBlack = enabled) } }
@@ -312,7 +369,7 @@ class MainViewModel @Inject constructor(
     fun updateSgsrOptions(mode: String, sharpness: Float) { prefs.sgsrMode = mode; prefs.sgsrSharpness = sharpness; _uiState.update { it.copy(sgsrMode = mode, sgsrSharpness = sharpness) }; VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, mode) }
 
     // Os sliders de saturação/temperatura são arrastados continuamente, e cada aplicação faz
-    // escritas root bloqueantes (setprop + service call). Chamadas diretamente do `onValueChange`,
+    // escritas root bloqueantes (service call SurfaceFlinger). Chamadas diretamente do `onValueChange`,
     // como estavam, travavam a thread de UI a cada fotograma do arrasto -- o mesmo bug que já
     // tinha sido corrigido nos sliders de TDP/clocks, mas que aqui tinha passado despercebido.
     // Mesmo padrão: debounce com cancelamento em Dispatchers.IO.
@@ -322,8 +379,7 @@ class MainViewModel @Inject constructor(
         colorJob?.cancel()
         colorJob = viewModelScope.launch(Dispatchers.IO) {
             delay(LIVE_APPLY_DEBOUNCE_MS)
-            displayManager.applySaturation(saturation)
-            displayManager.applyTemperature(temperature)
+            displayManager.applyColor(saturation, temperature)
         }
     }
 
@@ -342,10 +398,8 @@ class MainViewModel @Inject constructor(
     /**
      * Repõe a calibração de cor de fábrica.
      *
-     * Antes chamava `saveTemperature(6500f)`, que reescreve `night_display_activated 1` -- ou
-     * seja, "repor" deixava o Night Display LIGADO, e o ecrã continuava com a dominante quente.
-     * `DisplayManager.resetDisplayColor()` é o caminho que realmente o desliga, e nunca era
-     * chamado por ninguém.
+     * Repõe saturação 1.0 e matriz identidade no SurfaceFlinger (e desfaz o Night Display /
+     * HWC desativado que versões antigas deixavam ligados). Ver DisplayManager.
      */
     fun resetDisplayColors() {
         prefs.saturationOverride = 1.0f
@@ -353,7 +407,6 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(currentSaturation = 1.0f, currentTemperature = 6500f) }
         colorJob?.cancel()
         colorJob = viewModelScope.launch(Dispatchers.IO) {
-            displayManager.applySaturation(1.0f)
             displayManager.resetDisplayColor()
         }
     }
@@ -368,9 +421,29 @@ class MainViewModel @Inject constructor(
     // funções eram chamadas diretamente de callbacks do Compose (onClick/onCheckedChange), ou
     // seja, faziam I/O root na thread de UI. Agora vão para Dispatchers.IO; o `_uiState` é
     // atualizado de imediato para a UI continuar a responder na hora.
-    fun updateSinglePressHomePreference(newValue: Boolean) {
-        _uiState.update { it.copy(singlePressHomeEnabled = newValue) }
-        viewModelScope.launch(Dispatchers.IO) { settings.preventPressHome = !newValue }
+    // ---- Gestos do botão Home ----
+    fun updateHomeGestures(config: HomeGestureConfig) {
+        prefs.homeGestureConfig = config
+        _uiState.update { it.copy(homeGestures = config) }
+    }
+
+    // ---- Macros M1/M2 ----
+    fun openMacroEditor(button: String) { _uiState.update { it.copy(macroEditorFor = button) } }
+    fun closeMacroEditor() { _uiState.update { it.copy(macroEditorFor = null) } }
+
+    /**
+     * Liga/desliga a macro de um botão. Ligada: guarda o mapeamento nativo atual e aponta o botão
+     * para a tecla-gatilho (ButtonMacros.TRIGGER_*). Desligada: repõe o mapeamento guardado.
+     */
+    fun saveMacro(button: String, enabled: Boolean, steps: List<MacroStep>) {
+        val effectiveEnabled = enabled && steps.isNotEmpty()
+        prefs.saveMacro(button, effectiveEnabled, ButtonMacros.encode(steps))
+        _uiState.update {
+            if (button == "m1") it.copy(m1MacroEnabled = effectiveEnabled, m1MacroSteps = steps, macroEditorFor = null)
+            else it.copy(m2MacroEnabled = effectiveEnabled, m2MacroSteps = steps, macroEditorFor = null)
+        }
+        // Mesma lógica que o watcher usa ao trocar de jogo (inclui macros por jogo).
+        viewModelScope.launch(Dispatchers.IO) { buttonActions.syncTriggers() }
     }
 
     fun remapButtonClicked(setting: String) {
@@ -389,6 +462,16 @@ class MainViewModel @Inject constructor(
         // `currentButtonKeyCode` passa a acompanhar o valor gravado: sem isto, reabrir o diálogo
         // mostrava o mapeamento antigo até a app ser reiniciada.
         _uiState.update { it.copy(showRemapButtonDialog = false, currentButtonKeyCode = newValue) }
+        // Um mapeamento nativo novo substitui a macro desse botão (senão a tecla-gatilho perdia-se).
+        val button = when (setting) {
+            SettingsRepo.KEY_CUSTOM_M1_VALUE -> "m1"
+            SettingsRepo.KEY_CUSTOM_M2_VALUE -> "m2"
+            else -> null
+        }
+        if (button != null && prefs.macroEnabled(button)) {
+            prefs.saveMacro(button, false, prefs.macroSteps(button).orEmpty())
+            _uiState.update { if (button == "m1") it.copy(m1MacroEnabled = false) else it.copy(m2MacroEnabled = false) }
+        }
         viewModelScope.launch(Dispatchers.IO) { executor.setIntSystemSetting(setting, newValue) }
     }
 }

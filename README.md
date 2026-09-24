@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/logo.png" width="180" alt="Odin Hub logo">
+  <img src="./assets/logo.png" width="300" alt="Odin Hub logo">
 </p>
 
 <h1 align="center">Odin Hub</h1>
@@ -7,6 +7,16 @@
 <p align="center">
   A console-style hardware and performance control center for the <b>AYN Odin 3</b>.<br>
   Built by <b>dfdx047</b>.
+</p>
+
+<p align="center">
+  <a href="https://github.com/dfdx047/odinhub/releases/latest"><img src="https://img.shields.io/github/v/release/dfdx047/odinhub?include_prereleases&label=download&style=for-the-badge" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/device-AYN%20Odin%203-7c6cf0?style=for-the-badge" alt="AYN Odin 3">
+  <img src="https://img.shields.io/badge/root-not%20required-2ea44f?style=for-the-badge" alt="No root required">
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/01-tdp-profiles.png" width="85%" alt="Odin Hub — TDP profiles">
 </p>
 
 ---
@@ -51,22 +61,35 @@ Rules live in a single Room database and are edited from **two places that stay 
 
 Change a game in one place and the other reflects it. There is no second source of truth.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Manual clocks](./docs/screenshots/02-manual-clocks.png) | ![Thermal limit](./docs/screenshots/03-thermal-limit.png) |
+| **Real clock tables** — every chip is a frequency the SoC actually supports | **Thermal limit** — move the throttling point, globally or per game |
+| ![Home gestures](./docs/screenshots/05-home-gestures.png) | ![Macro editor](./docs/screenshots/06-macro-editor.png) |
+| **Home button gestures** — screenshot, full-screen recording, overlay… | **M1 / M2 macros** — combos and timed sequences, global or per game |
+| ![Color calibration](./docs/screenshots/07-color-calibration.png) | ![Per-game rules](./docs/screenshots/04-per-game-rules.png) |
+| **Color calibration** — saturation and white balance, live | **Per-game rules** — applied when the game opens, reverted when you leave |
+
 ## Features
 
 ### Performance
-- **Dynamic TDP** — a closed loop that reads real-time power draw and walks CPU/GPU clocks down until the device settles at your target wattage, instead of a fixed frequency guess.
-- **Per-cluster clock control** — discrete presets per CPU cluster (Perf / Prime) plus an independent Adreno GPU control. Discrete rather than a free-sliding MHz slider because the kernel only accepts the frequencies in its cpufreq table; anything in between gets silently rounded or rejected.
+- **Dynamic TDP** — a closed loop that reads real-time power draw and walks CPU/GPU clocks down until the device settles at your target wattage (1–25 W), instead of a fixed frequency guess.
+- **TDP profiles** — Power Save (11 W), Balanced (12.5 W) and Triple A (15 W), tuned on the Snapdragon 8 Elite, plus Stock (no limit). Profiles are independent from the free slider.
+- **Per-cluster clock control** — the real frequencies of each CPU cluster (Perf / Prime) and the Adreno GPU, read live from the kernel's OPP tables (with the real SM8750 / SM8550 tables as fallback). Only one of TDP or manual clocks is active at a time.
+- **Thermal limit** — optionally move the first-stage passive trip points of the CPU/GPU thermal zones (85 / 90 / 95 °C or unthrottled), globally or per game. Written through PServerBinder like everything else — no KernelSU/Magisk needed. Emergency trips are never touched, and Stock restores the factory values.
 - **Fan control** — Stock, Quiet, Smart and Sport, mapped to the device's real fan modes.
 - **Custom profiles** — save your own TDP or clock presets by name.
 
 ### Display
-- Saturation and color temperature calibration, with a reset that actually turns Night Display back off.
-- Per-game display profiles, applied with the rest of the game's rule.
+- Saturation (0–2×) and color temperature (4000–9000 K, warmer or cooler) applied live through SurfaceFlinger's own color transform.
+- Per-game color, from the Per-App Overrides screen or the in-game overlay.
 
 ### Controls
-- Remap the M1 / M2 rear buttons to any key code.
+- Remap the M1 / M2 rear buttons to any key code — or to a **macro / combo** (several buttons at once, or a timed sequence). Macros can also be set **per game**, from the Per-App Overrides screen or the in-game overlay.
+- **Home button gestures** — single, double, triple tap and long press, each mapped to a system action: screenshot, full-screen recording (no app picker, saved to Movies/OdinHub), overlay toggle, recents, notifications, lock screen and more.
 - Bind a physical button to open the in-game overlay.
-- Single-press Home toggle.
 
 ### Interface
 - Seven console-inspired themes (Odin OS, Cyberpunk, SNES, NES, PlayStation, Xbox, Steam OS) plus a Light theme, Material You dynamic colors, and an AMOLED black mode.
@@ -75,7 +98,7 @@ Change a game in one place and the other reflects it. There is no second source 
 
 ## How it talks to the hardware
 
-Odin Hub does not run `su`. It reaches a privileged helper already present on the device — `PServerBinder` — through `IBinder.transact()`, a technique pioneered by **ClusterTune** and **P.U.L.S.E.** (see Credits). Through that channel it writes to `sysfs` nodes and Android system settings.
+Odin Hub does not run `su` and needs no KernelSU/Magisk. It reaches a privileged helper already present on the device — `PServerBinder`, which runs as root — through `IBinder.transact()`, a technique pioneered by **ClusterTune** and **P.U.L.S.E.** (see Credits). Through that channel it writes to `sysfs` nodes and Android system settings.
 
 Two consequences worth knowing:
 
@@ -86,21 +109,21 @@ Foreground-app detection runs through an accessibility service, with a `UsageSta
 
 ## Requirements
 
-- AYN Odin 3 is the main device serveral tested, but other AYN devices and Retroid should work.
+- AYN Odin 3.
 - The `PServerBinder` helper available on the device (present on stock AYN firmware).
 - Permissions granted at first launch: **Usage Access** (foreground-app detection) and **Display over other apps** (the in-game overlay).
 
 ## Installing
 
-1. Download the latest APK from the [Releases](https://github.com/dfdx047/OdinHub/releases/latest) page.
+1. Download the latest APK from the [Releases](https://github.com/dfdx047/odinhub/releases/latest) page.
 2. Install it on your Odin 3.
 3. Launch it and grant the two permissions it asks for.
 
 ## Building
 
 ```bash
-git clone https://github.com/dfdx047/OdinHub.git
-cd OdinHub
+git clone https://github.com/dfdx047/odinhub.git
+cd odinhub
 ./gradlew assembleDebug
 ```
 

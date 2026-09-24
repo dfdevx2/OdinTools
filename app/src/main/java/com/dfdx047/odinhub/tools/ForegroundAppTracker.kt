@@ -213,7 +213,27 @@ class ForegroundAppTracker @Inject constructor(
      * Devolve `true` quando o novo pacote é um app de utilizador (e portanto as regras por app
      * devem ser aplicadas); `false` quando voltámos para a home/sistema/para esta própria app.
      */
+    /**
+     * `true` para janelas que aparecem POR CIMA do jogo sem que o utilizador tenha saído dele:
+     * a cortina de notificações e as notificações heads-up (SystemUI), o teclado, diálogos do
+     * sistema ("android"), popups de outros serviços sem ícone na gaveta, etc.
+     *
+     * BUG RELATADO: "aciono o overlay, desço a barra de notificação (ou chega uma notificação) e o
+     * overlay some; só volta indo aos recentes e reabrindo o jogo". A cortina emite um
+     * TYPE_WINDOW_STATE_CHANGED com o pacote da SystemUI; nós tratávamos isso como "saiu do
+     * jogo" e escondíamos o puxador. Ao fechar a cortina, o jogo volta a ter foco mas NÃO emite
+     * um novo evento -- por isso o puxador ficava escondido até se trocar de app.
+     *
+     * Estas janelas passam a ser ignoradas por completo: o estado anterior (jogo X à frente)
+     * mantém-se. Só um launcher, a própria Odin Hub (MainActivity) ou outro app de utilizador
+     * mudam o estado.
+     */
+    fun isTransientWindow(pkg: String): Boolean =
+        com.dfdx047.odinhub.models.FeatureFlags.IGNORE_TRANSIENT_WINDOWS && pkg.isNotBlank() && pkg != context.packageName && pkg !in homePackages && !isTrackableApp(pkg)
+
     fun onForegroundPackage(pkg: String): Boolean {
+        // Janela transitória por cima do jogo: nada muda (ver isTransientWindow).
+        if (isTransientWindow(pkg)) return _isGameForeground.value
         val trackable = isTrackableApp(pkg)
         // Deliberadamente NÃO persistimos isto em SharedPreferences. O antigo
         // `prefs.currentForegroundApp` era precisamente a origem do bug: um valor guardado em

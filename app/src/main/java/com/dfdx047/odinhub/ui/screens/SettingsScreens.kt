@@ -2,6 +2,11 @@
 
 package com.dfdx047.odinhub.ui.screens
 
+import com.dfdx047.odinhub.ui.theme.secondaryText
+import com.dfdx047.odinhub.ui.theme.glass
+import com.dfdx047.odinhub.ui.theme.onPrimary
+import com.dfdx047.odinhub.ui.theme.scrim
+import com.dfdx047.odinhub.ui.theme.backdropBottom
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.ImageDecoder
@@ -62,11 +67,13 @@ import androidx.media3.ui.PlayerView
 import com.dfdx047.odinhub.R
 import com.dfdx047.odinhub.models.AppInfo
 import com.dfdx047.odinhub.models.FanMode
+import com.dfdx047.odinhub.models.FeatureFlags
 import com.dfdx047.odinhub.main.MainUiModel
 import com.dfdx047.odinhub.main.MainViewModel
 import com.dfdx047.odinhub.tools.SettingsRepo
 import com.dfdx047.odinhub.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -121,16 +128,10 @@ private fun AnimatedContentTransitionScope<Boolean>.bootTransition(enteringHome:
             fadeOut(animationSpec = tween(300)) using SizeTransform(clip = false)
     }
 
+    // A entrada "dramática" da interface é agora a montagem em cascata (BootAssemble.kt); aqui
+    // basta um fade curto para não competir com ela.
     return (
-        fadeIn(animationSpec = tween(durationMillis = 620, delayMillis = 140, easing = FastOutSlowInEasing)) +
-            scaleIn(
-                initialScale = 1.08f,
-                animationSpec = tween(durationMillis = 760, delayMillis = 140, easing = FastOutSlowInEasing),
-            ) +
-            slideInVertically(
-                animationSpec = tween(durationMillis = 760, delayMillis = 140, easing = FastOutSlowInEasing),
-                initialOffsetY = { height -> -(height / 24) },
-            )
+        fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing))
         ) togetherWith (
         fadeOut(animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)) +
             scaleOut(targetScale = 0.94f, animationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing))
@@ -149,6 +150,11 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
     var showWelcomeSetup by rememberSaveable { mutableStateOf(viewModel.isFirstRun()) }
     var showBootAnimation by rememberSaveable { mutableStateOf(false) }
 
+    // Progresso da animação "interface a reconstruir-se" depois do vídeo de arranque (1 = parada).
+    val assembleProgress = remember { Animatable(1f) }
+    val assembleScope = rememberCoroutineScope()
+    val assemble: () -> Float = { assembleProgress.value }
+
     // Snackbar discreto para falhas reais de escrita em sysfs/PServer (ver
     // MainViewModel.hardwareErrorEvents) -- antes disso, uma escrita rejeitada não tinha
     // nenhum sinal visível para o utilizador além do Logcat.
@@ -159,8 +165,10 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         }
     }
 
-    var currentLanguage by rememberSaveable { mutableStateOf("Português (PT-BR)") }
-    val isEn = currentLanguage == "English (US)"
+    // Idioma persistido em SharedPrefsRepo (partilhado com o overlay e o editor por app) -- antes
+    // era um rememberSaveable local que se perdia ao reabrir a app e que os outros ecrãs não viam.
+    val isEn by viewModel.isEnglish.collectAsState()
+    val currentLanguage = if (isEn) "English (US)" else "Português (PT-BR)"
 
     val rawTheme = AvailableThemes.getOrElse(uiState.selectedThemeIndex) { AvailableThemes[0] }
     val finalTheme = getResolvedTheme(rawTheme, uiState.useAmoledBlack)
@@ -198,10 +206,10 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             text = {
                 Text(
                     if (isEn) {
-                        "Odin Hub could not reach the PServer helper or a root shell, so performance, " +
+                        "Odin Hub could not reach the PServerBinder helper (stock AYN firmware), so performance, " +
                             "fan and display controls will not affect the device. Everything else still works."
                     } else {
-                        "O Odin Hub não conseguiu alcançar o PServer nem um shell root, por isso os controlos " +
+                        "O Odin Hub não conseguiu alcançar o PServerBinder (firmware AYN de fábrica), por isso os controlos " +
                             "de desempenho, ventoinha e ecrã não vão afetar o aparelho. O resto continua a funcionar."
                     },
                     color = finalTheme.text.copy(alpha = 0.8f),
@@ -225,7 +233,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
             amoledBlack = uiState.useAmoledBlack,
             onThemeChange = { viewModel.updateThemeIndex(it) },
             onAmoledToggle = { viewModel.updateAmoledBlack(it) },
-            onLanguageChange = { currentLanguage = it },
+            onLanguageChange = { viewModel.setLanguage(it == "English (US)") },
             onFinish = {
                 viewModel.finishWelcomeSetup()
                 showWelcomeSetup = false
@@ -241,7 +249,14 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
         label = "BootTransition",
     ) { isBooting ->
         if (isBooting) {
-            VideoBootScreen(theme = finalTheme, onVideoEnded = { showBootAnimation = false; playSfx(R.raw.sfx_select) })
+            VideoBootScreen(theme = finalTheme, onVideoEnded = {
+                assembleScope.launch {
+                    assembleProgress.snapTo(0f)
+                    showBootAnimation = false
+                    assembleProgress.animateTo(1f, tween(durationMillis = ASSEMBLE_DURATION_MS, easing = LinearEasing))
+                }
+                playSfx(R.raw.sfx_select)
+            })
         } else {
             Box(modifier = Modifier.fillMaxSize().background(finalTheme.background)) {
                 Box(modifier = Modifier.fillMaxSize().alpha(wallpaperOpacity)) {
@@ -254,7 +269,7 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                     }
                 }
 
-                Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(finalTheme.background.copy(alpha = 0.4f), Color.Black.copy(alpha = 0.85f)))))
+                Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(finalTheme.background.copy(alpha = 0.4f), finalTheme.backdropBottom))))
 
                 if (isLandscape) {
                     Row(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
@@ -263,8 +278,33 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            Text("ODIN\nHUB", fontSize = 20.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 1.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 16.dp))
-                            ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn, isLandscape = true) {
+                            Text("ODIN\nHUB", fontSize = 20.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 1.sp, textAlign = TextAlign.Center, modifier = Modifier.assembleStage(assemble, 0.10f, 0.40f, fromY = (-18).dp).padding(bottom = 16.dp))
+                            Box(modifier = Modifier.assembleStage(assemble, 0.22f, 0.58f, fromX = (-40).dp), contentAlignment = Alignment.Center) {
+                                ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn, isLandscape = true) {
+                                    if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+                                }
+                            }
+                        }
+
+                        AnimatedContent(
+                            targetState = selectedTab,
+                            transitionSpec = { tabTransition(targetState > initialState) },
+                            modifier = Modifier.weight(1f).fillMaxHeight().assembleStage(assemble, 0.40f, 0.95f, fromY = 36.dp).padding(end = 24.dp, top = 24.dp, bottom = 16.dp),
+                            label = "tab_anim"
+                        ) { targetTab ->
+                            when (targetTab) {
+                                0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
+                                1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                                2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
+                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { viewModel.setLanguage(it == "English (US)") }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }, bgmEnabled = uiState.bgmEnabled, bgmVolume = uiState.bgmVolume, sfxEnabled = uiState.sfxEnabled, sfxVolume = uiState.sfxVolume, onBgmToggle = { viewModel.updateBgmEnabled(it) }, onBgmVolume = { viewModel.updateBgmVolume(it) }, onSfxToggle = { viewModel.updateSfxEnabled(it) }, onSfxVolume = { viewModel.updateSfxVolume(it) }) { playSfx(R.raw.sfx_select) }
+                            }
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                        Text("ODIN HUB", fontSize = 28.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 2.sp, modifier = Modifier.assembleStage(assemble, 0.10f, 0.40f, fromY = (-18).dp).padding(start = 24.dp, top = 24.dp, bottom = 8.dp))
+                        Box(modifier = Modifier.assembleStage(assemble, 0.22f, 0.58f, fromY = (-24).dp)) {
+                            ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn, isLandscape = false) {
                                 if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
                             }
                         }
@@ -272,39 +312,20 @@ fun SettingsScreen(viewModel: MainViewModel = hiltViewModel(), navigateToOverrid
                         AnimatedContent(
                             targetState = selectedTab,
                             transitionSpec = { tabTransition(targetState > initialState) },
-                            modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 24.dp, top = 24.dp, bottom = 16.dp),
+                            modifier = Modifier.fillMaxSize().assembleStage(assemble, 0.40f, 0.95f, fromY = 36.dp).padding(horizontal = 24.dp).padding(bottom = 16.dp),
                             label = "tab_anim"
                         ) { targetTab ->
                             when (targetTab) {
                                 0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
                                 1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
                                 2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }, bgmEnabled = uiState.bgmEnabled, bgmVolume = uiState.bgmVolume, sfxEnabled = uiState.sfxEnabled, sfxVolume = uiState.sfxVolume, onBgmToggle = { viewModel.updateBgmEnabled(it) }, onBgmVolume = { viewModel.updateBgmVolume(it) }, onSfxToggle = { viewModel.updateSfxEnabled(it) }, onSfxVolume = { viewModel.updateSfxVolume(it) }) { playSfx(R.raw.sfx_select) }
-                            }
-                        }
-                    }
-                } else {
-                    Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
-                        Text("ODIN HUB", fontSize = 28.sp, fontFamily = finalTheme.fontFamily, fontWeight = FontWeight.Black, color = finalTheme.primary, letterSpacing = 2.sp, modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 8.dp))
-                        ConsoleMenuBar(selectedTab = selectedTab, theme = finalTheme, isEn = isEn, isLandscape = false) {
-                            if (selectedTab != it) { playSfx(R.raw.sfx_nav); selectedTab = it; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
-                        }
-
-                        AnimatedContent(
-                            targetState = selectedTab,
-                            transitionSpec = { tabTransition(targetState > initialState) },
-                            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 16.dp),
-                            label = "tab_anim"
-                        ) { targetTab ->
-                            when (targetTab) {
-                                0 -> PerformancePanel(uiState, viewModel, finalTheme, isEn, navigateToOverrideList) { playSfx(R.raw.sfx_select) }
-                                1 -> DisplayPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                                2 -> ControlsPanel(uiState, viewModel, finalTheme, isEn) { playSfx(R.raw.sfx_select) }
-                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { currentLanguage = it }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }, bgmEnabled = uiState.bgmEnabled, bgmVolume = uiState.bgmVolume, sfxEnabled = uiState.sfxEnabled, sfxVolume = uiState.sfxVolume, onBgmToggle = { viewModel.updateBgmEnabled(it) }, onBgmVolume = { viewModel.updateBgmVolume(it) }, onSfxToggle = { viewModel.updateSfxEnabled(it) }, onSfxVolume = { viewModel.updateSfxVolume(it) }) { playSfx(R.raw.sfx_select) }
+                                3 -> SystemPanel(uiState, viewModel, finalTheme, isEn, amoledBlack = uiState.useAmoledBlack, liveWallpaperType = liveWallpaperType, blurEnabled = blurEnabled, blurIntensity = blurIntensity, wallpaperOpacity = wallpaperOpacity, selectedWallpaperName = selectedWallpaperName, currentThemeIndex = uiState.selectedThemeIndex, currentLanguage = currentLanguage, onThemeChange = { viewModel.updateThemeIndex(it) }, onLanguageChange = { viewModel.setLanguage(it == "English (US)") }, onAmoledToggle = { viewModel.updateAmoledBlack(it) }, onLiveWallpaperTypeChange = { liveWallpaperType = it }, onBlurToggle = { blurEnabled = it }, onBlurIntensityChange = { blurIntensity = it }, onWallpaperOpacityChange = { wallpaperOpacity = it }, onPresetStaticSelected = { res, name -> selectedCustomUriString = null; selectedStaticRes = res; selectedWallpaperName = name }, onPresetVideoSelected = { selectedCustomUriString = null; selectedWallpaperName = if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão" }, onCustomUriSelected = { uri, name -> selectedCustomUriString = uri.toString(); selectedWallpaperName = name }, onReplayBoot = { showWelcomeSetup = true }, bgmEnabled = uiState.bgmEnabled, bgmVolume = uiState.bgmVolume, sfxEnabled = uiState.sfxEnabled, sfxVolume = uiState.sfxVolume, onBgmToggle = { viewModel.updateBgmEnabled(it) }, onBgmVolume = { viewModel.updateBgmVolume(it) }, onSfxToggle = { viewModel.updateSfxEnabled(it) }, onSfxVolume = { viewModel.updateSfxVolume(it) }) { playSfx(R.raw.sfx_select) }
                             }
                         }
                     }
                 }
+
+                AssembleScanOverlay(progress = assemble, theme = finalTheme)
 
                 SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars).padding(bottom = 8.dp))
             }
@@ -399,7 +420,7 @@ fun OdinHubWelcomeScreen(theme: ConsoleTheme, isEn: Boolean, currentThemeIndex: 
             }
 
             Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onFinish() }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                Text(if (isEn) "START" else "INICIAR", color = Color.White, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold)
+                Text(if (isEn) "START" else "INICIAR", color = theme.onPrimary, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -483,8 +504,6 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
     val isTdpMode = uiState.activeLimitMode == "TDP"
     val isClockMode = uiState.activeLimitMode == "CLOCK"
 
-    var savedPresetName by remember { mutableStateOf("") }
-
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleCard(if (isEn) "Per-App Overrides" else "Configurações por Aplicativo", if (isEn) "Customize TDP, Clocks, and Shaders per game" else "Personalize TDP, Clocks e Shaders individualmente por jogo", theme, playClick = { navigateToOverrideList(); playClick() }) {
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -493,16 +512,8 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             }
         }
 
-        ConsoleSectionHeader(if (isEn) "Execution Backend" else "Backend de Execução", theme)
-        ConsoleCard(if (isEn) "Root / P-Server Binder" else "KernelSU vs P-Server", if (isEn) "Switch operation mode" else "Alternar modo de operação", theme) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isEn) "Use KernelSU (Root)" else "Usar KernelSU (Root)", color = theme.text, fontFamily = theme.fontFamily)
-                ConsoleToggle(checked = uiState.useRootTarget, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateUseRootTarget(it); playClick() })
-            }
-        }
-
         ConsoleSectionHeader(if (isEn) "Fan Control" else "Controle de Ventoinha", theme)
-        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(theme.scrim).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             // Usa os settingsValue reais de FanMode (1/4/5) em vez de índices 0/1/2 escritos à
             // mão: a auditoria encontrou este mesmo ecrã, o overlay e o ForegroundAppWatcherService
             // cada um com o seu próprio mapeamento de números, pelo que a ventoinha escolhida
@@ -511,137 +522,56 @@ fun PerformancePanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Cons
             for (mode in FanMode.selectable) {
                 val isSel = uiState.fanMode == mode.settingsValue
                 Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else Color.Transparent).clickable { viewModel.updateFanMode(mode.settingsValue) }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                    Text(mode.shortLabel, color = if (isSel) Color.White else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(mode.shortLabel, color = if (isSel) theme.onPrimary else theme.text.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
         ConsoleSectionHeader(if (isEn) "Hardware Limitation Mode" else "Modo de Limitação de Hardware", theme)
-        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(4.dp)) {
-            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("TDP"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text(if (isEn) "Lock by TDP" else "Limitar por TDP", color = if (isTdpMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily) }
-            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isClockMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("CLOCK"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text(if (isEn) "Lock by Clocks" else "Limitar por Clocks", color = if (isClockMode) Color.White else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily) }
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(theme.scrim).border(1.dp, theme.text.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(4.dp)) {
+            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isTdpMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("TDP"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text(if (isEn) "Lock by TDP" else "Limitar por TDP", color = if (isTdpMode) theme.onPrimary else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily) }
+            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isClockMode) theme.primary.copy(alpha = 0.8f) else Color.Transparent).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateLimitMode("CLOCK"); playClick() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text(if (isEn) "Lock by Clocks" else "Limitar por Clocks", color = if (isClockMode) theme.onPrimary else theme.text.copy(alpha=0.6f), fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily) }
         }
 
-        if (isTdpMode) {
-            ConsoleCard(if (isEn) "Global TDP Profiles" else "Perfis Globais de TDP", if (isEn) "Select or create" else "Selecione ou crie um perfil", theme, enabled = isTdpMode) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    val defaultTdp = listOf("Power Save" to 5f, "Balanced" to 10f, "Triple A" to 15f, "Stock" to 25f)
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for ((profName, watts) in defaultTdp) {
-                            val isSel = uiState.tdpValue == watts
-                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable { if(isTdpMode) viewModel.updateTdp(watts) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(profName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    val userTdpProfiles = uiState.customProfiles.filter { it.type == "TDP" }
-                    if (userTdpProfiles.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            for (prof in userTdpProfiles) {
-                                val isSel = uiState.tdpValue == prof.v1
-                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable { if(isTdpMode) viewModel.updateTdp(prof.v1) }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
+        // Os DOIS cartões ficam sempre visíveis; o do modo inativo é desenhado com
+        // `enabled = false` (o ConsoleCard esbate-o) e com um aviso de uma linha lá dentro. O
+        // perfil de TDP é o mestre (conduz CPU e GPU); os clocks são manuais, para quem quer
+        // fixar valores específicos -- os dois nunca interferem (ver PerformanceCards.kt).
+        TdpProfileCard(
+            enabled = isTdpMode,
+            tdpProfileId = uiState.tdpProfileId,
+            tdpValue = uiState.tdpValue,
+            customProfiles = uiState.customProfiles,
+            theme = theme,
+            isEn = isEn,
+            onSelectProfile = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.selectTdpProfile(it); playClick() },
+            onSelectCustomProfile = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.selectCustomTdpProfile(it); playClick() },
+            onSliderChange = { viewModel.updateTdp(it) },
+            onSavePreset = { name, watts -> viewModel.saveCustomProfile(name, "TDP", watts, 0f, 0f, 0f) },
+        )
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("TDP Limit: ${uiState.tdpValue.toInt()} W", color = theme.text, fontSize = 12.sp)
-                    Slider(value = uiState.tdpValue, onValueChange = { viewModel.updateTdp(it) }, valueRange = 5f..25f, enabled = isTdpMode, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(value = savedPresetName, onValueChange = { savedPresetName = it }, label = { Text(if (isEn) "Preset Name" else "Nome do Preset TDP", fontSize = 10.sp) }, modifier = Modifier.weight(1f).height(50.dp), textStyle = TextStyle(fontSize = 12.sp, color = theme.text), enabled = isTdpMode)
-                        Button(onClick = { if (savedPresetName.isNotBlank() && isTdpMode) { viewModel.saveCustomProfile(savedPresetName, "TDP", uiState.tdpValue, 0f, 0f, 0f); savedPresetName = "" } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.height(50.dp), enabled = isTdpMode) { Text(if (isEn) "Save" else "Salvar", fontSize = 11.sp, color = Color.White) }
-                    }
-                }
-            }
-        } else {
-            ConsoleCard(if (isEn) "Global Clock Profiles" else "Perfis Globais de Clocks", if (isEn) "Perf/Prime only -- GPU is independent below" else "Só Perf/Prime -- a GPU é independente, mais abaixo", theme, enabled = isClockMode) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    // Perfis combinados: SÓ Cluster 0 (Perf) e Cluster 1 (Prime). A GPU nunca é
-                    // tocada por estes botões -- fica sempre no valor que o utilizador escolheu
-                    // manualmente no controlo de GPU, mais abaixo (ver ClockPresets.kt).
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (prof in com.dfdx047.odinhub.models.CombinedClockProfiles.all) {
-                            val label = if (isEn) prof.labelEn else prof.label
-                            val isSel = uiState.cpuPerfClock == prof.perfClockMHz && uiState.cpuPrimeClock == prof.primeClockMHz
-                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable {
-                                if (isClockMode) viewModel.updateManualClocks(prof.perfClockMHz, prof.primeClockMHz, uiState.gpuClock)
-                            }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    val userClockProfiles = uiState.customProfiles.filter { it.type == "CLOCK" }
-                    if (userClockProfiles.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            for (prof in userClockProfiles) {
-                                Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(theme.surface).clickable { if(isClockMode) viewModel.updateManualClocks(prof.v2, prof.v3, prof.v4) }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text(prof.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
+        ManualClockCard(
+            enabled = isClockMode,
+            tables = uiState.clockTables,
+            perfMHz = uiState.cpuPerfClock,
+            primeMHz = uiState.cpuPrimeClock,
+            gpuMHz = uiState.gpuClock,
+            customProfiles = uiState.customProfiles,
+            theme = theme,
+            isEn = isEn,
+            onClocks = { perf, prime, gpu -> haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateManualClocks(perf, prime, gpu); playClick() },
+            onSavePreset = { name, perf, prime, gpu -> viewModel.saveCustomProfile(name, "CLOCK", 0f, perf, prime, gpu) },
+        )
 
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(if (isEn) "Perf Cluster (Cluster 0)" else "Cluster Perf (Cluster 0)", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("${uiState.cpuPerfClock.toInt()} MHz", color = theme.text.copy(alpha = 0.6f), fontSize = 10.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (preset in com.dfdx047.odinhub.models.ClusterClockPresets.perfPresets) {
-                            val label = if (isEn) preset.labelEn else preset.label
-                            val isSel = uiState.cpuPerfClock == preset.clockMHz
-                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
-                                if (isClockMode) viewModel.updateManualClocks(preset.clockMHz, uiState.cpuPrimeClock, uiState.gpuClock)
-                            }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(label, color = theme.text, fontSize = 10.sp)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(if (isEn) "Prime Cluster (Cluster 1)" else "Cluster Prime (Cluster 1)", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("${uiState.cpuPrimeClock.toInt()} MHz", color = theme.text.copy(alpha = 0.6f), fontSize = 10.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (preset in com.dfdx047.odinhub.models.ClusterClockPresets.primePresets) {
-                            val label = if (isEn) preset.labelEn else preset.label
-                            val isSel = uiState.cpuPrimeClock == preset.clockMHz
-                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
-                                if (isClockMode) viewModel.updateManualClocks(uiState.cpuPerfClock, preset.clockMHz, uiState.gpuClock)
-                            }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(label, color = theme.text, fontSize = 10.sp)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(if (isEn) "GPU (independent -- not affected by profiles above)" else "GPU (independente -- não é afetada pelos perfis acima)", color = theme.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("${uiState.gpuClock.toInt()} MHz", color = theme.text.copy(alpha = 0.6f), fontSize = 10.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (preset in com.dfdx047.odinhub.models.ClusterClockPresets.gpuPresets) {
-                            val label = if (isEn) preset.labelEn else preset.label
-                            val isSel = uiState.gpuClock == preset.clockMHz
-                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface.copy(alpha = 0.6f)).clickable {
-                                if (isClockMode) viewModel.updateManualClocks(uiState.cpuPerfClock, uiState.cpuPrimeClock, preset.clockMHz)
-                            }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(label, color = theme.text, fontSize = 10.sp)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(value = savedPresetName, onValueChange = { savedPresetName = it }, label = { Text(if (isEn) "Preset Name" else "Nome do Preset Clocks", fontSize = 10.sp) }, modifier = Modifier.weight(1f).height(50.dp), textStyle = TextStyle(fontSize = 12.sp, color = theme.text), enabled = isClockMode)
-                        Button(onClick = { if (savedPresetName.isNotBlank() && isClockMode) { viewModel.saveCustomProfile(savedPresetName, "CLOCK", 0f, uiState.cpuPerfClock, uiState.cpuPrimeClock, uiState.gpuClock); savedPresetName = "" } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.height(50.dp), enabled = isClockMode) { Text(if (isEn) "Save" else "Salvar", fontSize = 11.sp, color = Color.White) }
-                    }
-                }
-            }
-        }
+        ConsoleSectionHeader(if (isEn) "Thermal" else "Térmico", theme)
+        ThermalLimitCard(
+            status = uiState.thermalStatus,
+            theme = theme,
+            isEn = isEn,
+            onSelectMode = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateThermalLimitMode(it); playClick() },
+            onDisableZoneMode = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateThermalDisableZoneMode(it); playClick() },
+            onRefresh = { viewModel.refreshThermalZones() },
+        )
     }
 }
 
@@ -651,32 +581,48 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
     var expandedLsfgMult by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // SGSR / Frame Gen escondidos enquanto não houver motor gráfico funcional dentro dos
+        // jogos (FeatureFlags.GRAPHICS_ENGINE_AVAILABLE) -- eram interruptores sem efeito.
+        if (!FeatureFlags.GRAPHICS_ENGINE_AVAILABLE) {
+            ConsoleCard(
+                if (isEn) "Graphics Engine (SGSR / ReShade / Frame Gen)" else "Motor Gráfico (SGSR / ReShade / Frame Gen)",
+                if (isEn) "Not available in this version" else "Indisponível nesta versão",
+                theme,
+                enabled = false,
+            ) {
+                Text(
+                    if (isEn) "In-game upscaling and post-processing are not part of this build yet." else "O upscaling e o pós-processamento dentro dos jogos ainda não fazem parte desta build.",
+                    color = theme.text.copy(alpha = 0.75f), fontFamily = theme.fontFamily, fontSize = 12.sp, modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+        if (FeatureFlags.GRAPHICS_ENGINE_AVAILABLE) {
         ConsoleSectionHeader(if (isEn) "Upscaling & Frame Generation" else "Upscaling e Geração de Quadros", theme)
 
-        ConsoleCard("Snapdragon Super Resolution (SGSR)", "Upscaling Gráfico Global", theme) {
+        ConsoleCard("Snapdragon Super Resolution (SGSR)", if (isEn) "Global graphics upscaling" else "Upscaling gráfico global", theme) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Ativar SGSR Global", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Enable global SGSR" else "Ativar SGSR global", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = uiState.globalSgsrEnabled, theme = theme, onCheckedChange = { viewModel.updateGlobalSgsr(it); playClick() })
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Modo SGSR", color = theme.text.copy(alpha = 0.7f), fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Text(if (isEn) "SGSR mode" else "Modo SGSR", color = theme.text.copy(alpha = 0.7f), fontFamily = theme.fontFamily, fontSize = 12.sp)
                 Spacer(Modifier.height(6.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("Quality", "Balanced", "Performance", "Ultra").forEach { mode ->
                         val isSel = uiState.sgsrMode == mode
                         Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSel) theme.primary else theme.surface).clickable { viewModel.updateSgsrOptions(mode, uiState.sgsrSharpness); playClick() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                            Text(text = mode, color = Color.White, fontFamily = theme.fontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(text = mode, color = if (isSel) theme.onPrimary else theme.text, fontFamily = theme.fontFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Nitidez (Sharpness): ${"%.2f".format(uiState.sgsrSharpness)}", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Text((if (isEn) "Sharpness: " else "Nitidez: ") + "%.2f".format(uiState.sgsrSharpness), color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
                 Slider(value = uiState.sgsrSharpness, onValueChange = { viewModel.updateSgsrOptions(uiState.sgsrMode, it) }, valueRange = 0.0f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
             }
         }
 
-        ConsoleCard("Lossless Scaling (Global)", if (uiState.isDllImported) "Injeção Vulkan LSFG Pronta" else "ATENÇÃO: Lossless.dll ausente. Importe em Sistema.", theme) {
+        ConsoleCard("Lossless Scaling (Global)", if (uiState.isDllImported) (if (isEn) "Lossless.dll imported" else "Lossless.dll importada") else (if (isEn) "Lossless.dll missing -- import it in System" else "Lossless.dll ausente -- importe em Sistema"), theme) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(if (isEn) "Enable LSFG Globally" else "Ativar LSFG Globalmente", color = theme.text, fontFamily = theme.fontFamily)
@@ -684,7 +630,7 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Multiplicador", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Multiplier" else "Multiplicador", color = theme.text, fontFamily = theme.fontFamily)
                     Box {
                         Text(uiState.lsfgMultiplier, color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { if (uiState.globalLsfgEnabled) { expandedLsfgMult = true; playClick() } }.alpha(if(uiState.globalLsfgEnabled) 1f else 0.5f))
                         DropdownMenu(expanded = expandedLsfgMult, onDismissRequest = { expandedLsfgMult = false }, modifier = Modifier.background(theme.surface)) {
@@ -694,33 +640,34 @@ fun DisplayPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: ConsoleT
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Sincronia (Frame Pacing)", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Frame pacing" else "Sincronia (Frame Pacing)", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = uiState.lsfgFramePacing, theme = theme, onCheckedChange = { viewModel.updateLsfgOptions(uiState.lsfgMultiplier, it, uiState.lsfgPerformanceMode); playClick() })
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Modo Performance LSFG", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "LSFG performance mode" else "Modo Performance LSFG", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = uiState.lsfgPerformanceMode, theme = theme, onCheckedChange = { viewModel.updateLsfgOptions(uiState.lsfgMultiplier, uiState.lsfgFramePacing, it); playClick() })
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Exibir Contador de FPS LSFG", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Show LSFG FPS counter" else "Exibir contador de FPS LSFG", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = uiState.showFpsOverlay, theme = theme, onCheckedChange = { viewModel.toggleFpsOverlay(it); playClick() })
                 }
             }
         }
+        }
 
-        ConsoleSectionHeader(if (isEn) "Color Calibration" else "Calibração Vulkan", theme)
-        ConsoleCard("Ajustes Manuais", "Saturação & Temperatura", theme) {
+        ConsoleSectionHeader(if (isEn) "Color Calibration" else "Calibração de Cor", theme)
+        ConsoleCard(if (isEn) "Manual Adjustments" else "Ajustes Manuais", if (isEn) "Saturation & temperature" else "Saturação e temperatura", theme) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Saturação: ${"%.1f".format(uiState.currentSaturation)}", color = theme.text, fontFamily = theme.fontFamily)
+                    Text((if (isEn) "Saturation: " else "Saturação: ") + "%.1f".format(uiState.currentSaturation), color = theme.text, fontFamily = theme.fontFamily)
                     Text("RESET", color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { viewModel.resetDisplayColors(); playClick() })
                 }
                 Slider(value = uiState.currentSaturation, onValueChange = { viewModel.saveSaturation(it) }, valueRange = 0.0f..2.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Temperatura: ${uiState.currentTemperature.toInt()}K", color = theme.text, fontFamily = theme.fontFamily)
+                    Text((if (isEn) "Temperature: " else "Temperatura: ") + "${uiState.currentTemperature.toInt()}K", color = theme.text, fontFamily = theme.fontFamily)
                     Text("RESET", color = theme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { viewModel.resetDisplayColors(); playClick() })
                 }
                 Slider(value = uiState.currentTemperature, onValueChange = { viewModel.saveTemperature(it) }, valueRange = 4000f..9000f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
@@ -734,11 +681,24 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
     val haptic = LocalHapticFeedback.current
 
     if (uiState.showRemapButtonDialog) {
-        ConsoleRemapDialog(initialValue = uiState.currentButtonKeyCode, theme = theme, onCancel = { viewModel.remapButtonDialogDismissed() }, onReset = { viewModel.saveButtonKeyCode(uiState.currentButtonSetting, 0); playClick() }, onSave = { viewModel.saveButtonKeyCode(uiState.currentButtonSetting, it); playClick() })
+        ConsoleRemapDialog(initialValue = uiState.currentButtonKeyCode, theme = theme, isEn = isEn, onCancel = { viewModel.remapButtonDialogDismissed() }, onReset = { viewModel.saveButtonKeyCode(uiState.currentButtonSetting, 0); playClick() }, onSave = { viewModel.saveButtonKeyCode(uiState.currentButtonSetting, it); playClick() })
+    }
+
+    uiState.macroEditorFor?.let { button ->
+        val isM1 = button == "m1"
+        MacroEditorDialog(
+            buttonLabel = if (isM1) "M1" else "M2",
+            initialEnabled = if (isM1) uiState.m1MacroEnabled else uiState.m2MacroEnabled,
+            initialSteps = if (isM1) uiState.m1MacroSteps else uiState.m2MacroSteps,
+            theme = theme,
+            isEn = isEn,
+            onCancel = { viewModel.closeMacroEditor() },
+            onSave = { enabled, steps -> viewModel.saveMacro(button, enabled, steps); playClick() },
+        )
     }
 
     if (uiState.showOverlayShortcutDialog) {
-        ConsoleRemapDialog(initialValue = uiState.overlayShortcutKeyCode, theme = theme, onCancel = { viewModel.hideOverlayShortcutDialog() }, onReset = { viewModel.saveOverlayShortcut(0); playClick() }, onSave = { viewModel.saveOverlayShortcut(it); playClick() })
+        ConsoleRemapDialog(initialValue = uiState.overlayShortcutKeyCode, theme = theme, isEn = isEn, onCancel = { viewModel.hideOverlayShortcutDialog() }, onReset = { viewModel.saveOverlayShortcut(0); playClick() }, onSave = { viewModel.saveOverlayShortcut(it); playClick() })
     }
 
     fun getDisplayName(keyCode: Int): String {
@@ -760,33 +720,32 @@ fun ControlsPanel(uiState: MainUiModel, viewModel: MainViewModel, theme: Console
             }
         }
 
-        ConsoleCard(if (isEn) "System Buttons" else "Botões de Sistema", if (isEn) "General behavior" else "Comportamento geral", theme, playClick = null) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isEn) "Single Press Home" else "Toque Único no Home", color = theme.text, fontFamily = theme.fontFamily)
-                ConsoleToggle(checked = uiState.singlePressHomeEnabled, theme = theme, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateSinglePressHomePreference(it); playClick() })
-            }
-        }
+        // Antes: "Toque único no Home" -- já existe nas definições da própria AYN. No lugar dele,
+        // gestos configuráveis do Home (screenshot, gravação de ecrã, overlay...).
+        HomeGesturesCard(config = uiState.homeGestures, theme = theme, isEn = isEn, onChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); viewModel.updateHomeGestures(it); playClick() })
 
         ConsoleSectionHeader(if (isEn) "Hardware Mapping" else "Mapeamento Físico", theme)
 
-        ConsoleCard(if (isEn) "Back Buttons (M1/M2)" else "Botões Traseiros (M1/M2)", if (isEn) "Native system remap" else "Mapeamento nativo do sistema", theme, playClick = null) {
+        ConsoleCard(if (isEn) "Back Buttons (M1/M2)" else "Botões Traseiros (M1/M2)", if (isEn) "Native remap, or macros / combos" else "Mapeamento nativo, ou macros / combos", theme, playClick = null) {
             Row(modifier = Modifier.fillMaxWidth().clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M1_VALUE) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(painterResource(R.drawable.ic_gamepad), contentDescription = null, tint = theme.text, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
-                    Text(stringResource(R.string.m1Button), color = theme.text, fontFamily = theme.fontFamily)
-                    Text(stringResource(R.string.remapButtonDescription), color = theme.text.copy(alpha=0.6f), fontSize = 12.sp, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "M1 Button" else "Botão M1", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (uiState.m1MacroEnabled) (if (isEn) "Macro active — native remap replaced" else "Macro ativa — substitui o mapeamento nativo") else (if (isEn) "Remap to any key — press to choose" else "Mapear para qualquer tecla — toque para escolher"), color = theme.text.copy(alpha=0.6f), fontSize = 12.sp, fontFamily = theme.fontFamily)
                 }
             }
+            MacroEntryRow("M1", uiState.m1MacroEnabled, uiState.m1MacroSteps.size, theme, isEn) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.openMacroEditor("m1") }
             HorizontalDivider(color = theme.text.copy(alpha = 0.1f), thickness = 1.dp)
             Row(modifier = Modifier.fillMaxWidth().clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.remapButtonClicked(SettingsRepo.KEY_CUSTOM_M2_VALUE) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(painterResource(R.drawable.ic_gamepad), contentDescription = null, tint = theme.text, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
-                    Text(stringResource(R.string.m2Button), color = theme.text, fontFamily = theme.fontFamily)
-                    Text(stringResource(R.string.remapButtonDescription), color = theme.text.copy(alpha=0.6f), fontSize = 12.sp, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "M2 Button" else "Botão M2", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (uiState.m2MacroEnabled) (if (isEn) "Macro active — native remap replaced" else "Macro ativa — substitui o mapeamento nativo") else (if (isEn) "Remap to any key — press to choose" else "Mapear para qualquer tecla — toque para escolher"), color = theme.text.copy(alpha=0.6f), fontSize = 12.sp, fontFamily = theme.fontFamily)
                 }
             }
+            MacroEntryRow("M2", uiState.m2MacroEnabled, uiState.m2MacroSteps.size, theme, isEn) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); playClick(); viewModel.openMacroEditor("m2") }
         }
     }
 }
@@ -815,21 +774,21 @@ fun SystemPanel(
     val losslessPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             val success = viewModel.importLosslessDll(it)
-            Toast.makeText(context, if (success) "Lossless.dll importada com sucesso!" else "Falha na importação", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, if (success) (if (isEn) "Lossless.dll imported" else "Lossless.dll importada com sucesso!") else (if (isEn) "Import failed" else "Falha na importação"), Toast.LENGTH_SHORT).show()
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ConsoleSectionHeader(if (isEn) "Overlay & Integration" else "Overlay e Integração", theme)
-        ConsoleCard("Side Menu / Gaming Overlay", "Barra lateral em tempo real sobre os jogos", theme) {
+        ConsoleCard(if (isEn) "Side Menu / Gaming Overlay" else "Menu Lateral / Overlay de Jogo", if (isEn) "Live side bar shown only inside games" else "Barra lateral em tempo real, só dentro dos jogos", theme) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Ativar Sidebar", color = theme.text, fontFamily = theme.fontFamily)
+                    Text(if (isEn) "Enable sidebar" else "Ativar sidebar", color = theme.text, fontFamily = theme.fontFamily)
                     ConsoleToggle(checked = uiState.overlayEnabled, theme = theme, onCheckedChange = {
                         if (!Settings.canDrawOverlays(context)) {
                             val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
                             context.startActivity(intent)
-                            Toast.makeText(context, "Conceda permissão de sobreposição!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, if (isEn) "Grant the overlay permission" else "Conceda a permissão de sobreposição", Toast.LENGTH_LONG).show()
                         } else {
                             viewModel.toggleOverlay(it)
                         }
@@ -844,10 +803,10 @@ fun SystemPanel(
                 // escrevia a mesma preferência sem qualquer feedback visual imediato, daí
                 // parecer "não fazer nada". A preferência e updateOverlayPanelOpacity() continuam
                 // a existir; só a linha duplicada da UI foi removida.
-                Text("Opacidade do Puxador: ${(uiState.overlayHandleOpacity * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Text((if (isEn) "Handle opacity: " else "Opacidade do puxador: ") + "${(uiState.overlayHandleOpacity * 100).toInt()}%", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
                 Slider(value = uiState.overlayHandleOpacity, onValueChange = { viewModel.updateHandleOpacity(it) }, valueRange = 0.1f..1.0f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
                 Spacer(Modifier.height(8.dp))
-                Text("Espessura do Puxador: ${uiState.overlayHandleWidth} dp", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
+                Text((if (isEn) "Handle width: " else "Espessura do puxador: ") + "${uiState.overlayHandleWidth} dp", color = theme.text, fontFamily = theme.fontFamily, fontSize = 12.sp)
                 Slider(value = uiState.overlayHandleWidth.toFloat(), onValueChange = { viewModel.updateHandleWidth(it.toInt()) }, valueRange = 16f..36f, colors = SliderDefaults.colors(thumbColor = theme.primary, activeTrackColor = theme.primary))
 
                 Spacer(Modifier.height(16.dp))
@@ -889,11 +848,13 @@ fun SystemPanel(
             }
         }
 
+        if (FeatureFlags.GRAPHICS_ENGINE_AVAILABLE) {
         ConsoleSectionHeader(if (isEn) "Lossless Scaling Engine" else "Motor Lossless Scaling", theme)
-        ConsoleCard("Lossless.dll Integration", if (uiState.isDllImported) "✅ Ficheiro Integrado no Sistema" else "❌ Ficheiro Ausente", theme) {
+        ConsoleCard(if (isEn) "Lossless.dll Integration" else "Integração Lossless.dll", if (uiState.isDllImported) (if (isEn) "✅ File imported" else "✅ Ficheiro importado") else (if (isEn) "❌ File missing" else "❌ Ficheiro ausente"), theme) {
             Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); losslessPickerLauncher.launch("*/*"); playClick() }, modifier = Modifier.padding(16.dp).fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) {
-                Text(if (uiState.isDllImported) "Substituir Lossless.dll..." else "Importar Lossless.dll da Steam...", color = Color.White, fontFamily = theme.fontFamily)
+                Text(if (uiState.isDllImported) (if (isEn) "Replace Lossless.dll..." else "Substituir Lossless.dll...") else (if (isEn) "Import Lossless.dll from Steam..." else "Importar Lossless.dll da Steam..."), color = theme.onPrimary, fontFamily = theme.fontFamily)
             }
+        }
         }
 
         ConsoleSectionHeader(if (isEn) "Language & Region" else "Idioma e Região", theme)
@@ -938,14 +899,14 @@ fun SystemPanel(
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (liveWallpaperType == "Static") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetStaticSelected(R.drawable.static_wallpaper_1, "Preset 1"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Wallpaper 1", color = Color.White, fontFamily = theme.fontFamily) }
-                        Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetStaticSelected(R.drawable.static_wallpaper_2, "Preset 2"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Wallpaper 2", color = Color.White, fontFamily = theme.fontFamily) }
+                        Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetStaticSelected(R.drawable.static_wallpaper_1, "Preset 1"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Wallpaper 1", color = theme.onPrimary, fontFamily = theme.fontFamily) }
+                        Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetStaticSelected(R.drawable.static_wallpaper_2, "Preset 2"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Wallpaper 2", color = theme.onPrimary, fontFamily = theme.fontFamily) }
                     }
                 } else {
-                    Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetVideoSelected(); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Live Wallpaper Padrão", color = Color.White, fontFamily = theme.fontFamily) }
+                    Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPresetVideoSelected(); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text(if (isEn) "Default Live Wallpaper" else "Live Wallpaper Padrão", color = theme.onPrimary, fontFamily = theme.fontFamily) }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); if (liveWallpaperType == "Static") imagePickerLauncher.launch("image/*") else videoPickerLauncher.launch("video/*"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.surface)) { Text("Escolher do Dispositivo...", color = theme.text, fontFamily = theme.fontFamily) }
+                Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); if (liveWallpaperType == "Static") imagePickerLauncher.launch("image/*") else videoPickerLauncher.launch("video/*"); playClick() }, colors = ButtonDefaults.buttonColors(containerColor = theme.surface)) { Text(if (isEn) "Choose from device..." else "Escolher do dispositivo...", color = theme.text, fontFamily = theme.fontFamily) }
             }
         }
         ConsoleSectionHeader(if (isEn) "About" else "Sobre", theme)
@@ -1009,7 +970,7 @@ private fun AboutCard(
                 ) {
                     Text(
                         if (isEn) "Check for updates" else "Procurar atualizações",
-                        color = Color.White,
+                        color = theme.onPrimary,
                         fontFamily = theme.fontFamily,
                         fontSize = 12.sp,
                     )
@@ -1068,7 +1029,7 @@ private fun AboutRow(label: String, value: String, theme: ConsoleTheme) {
 
 @Composable
 fun ConsoleSectionHeader(title: String, theme: ConsoleTheme) {
-    Text(title.uppercase(), fontSize = 14.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = theme.text.copy(alpha = 0.5f), letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 4.dp).padding(top = 8.dp))
+    Text(title.uppercase(), fontSize = 14.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = theme.secondaryText, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 4.dp).padding(top = 8.dp))
 }
 
 @Composable
@@ -1082,10 +1043,13 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, enabled: B
     val scale by animateFloatAsState(targetValue = if (isFocused && enabled) 1.02f else 1.0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cardScale")
     val glow by animateDpAsState(targetValue = if (isFocused && enabled) 16.dp else 0.dp, animationSpec = tween(200), label = "cardGlow")
 
-    val glassSurface = theme.surface.copy(alpha = if (enabled) 0.4f else 0.1f)
-    val subtleBorder = theme.text.copy(alpha = if (enabled) 0.15f else 0.05f)
+    // Vidro fosco: superfície mais opaca (ver ConsoleTheme.glass) com um brilho no topo, para o
+    // texto nunca competir com o wallpaper por trás. Antes a superfície tinha 40% de opacidade
+    // e em vários temas mal se liam as letras.
+    val glassSurface = theme.glass(enabled)
+    val subtleBorder = theme.text.copy(alpha = if (enabled) 0.18f else 0.08f)
     val borderColor by animateColorAsState(targetValue = if (isFocused && enabled) theme.primary else subtleBorder, label = "cardBorder")
-    val contentAlpha by animateFloatAsState(targetValue = if (enabled) 1f else 0.3f, label = "contentAlpha")
+    val contentAlpha by animateFloatAsState(targetValue = if (enabled) 1f else 0.5f, label = "contentAlpha")
 
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -1093,11 +1057,12 @@ fun ConsoleCard(title: String, subtitle: String, theme: ConsoleTheme, enabled: B
         modifier = Modifier.fillMaxWidth().scale(scale).shadow(glow, RoundedCornerShape(8.dp), spotColor = theme.primary, ambientColor = theme.primary).border(1.dp, borderColor, RoundedCornerShape(8.dp)).alpha(contentAlpha)
             .then(if (playClick != null && enabled) Modifier.focusable(interactionSource = interactionSource).clickable(interactionSource = interactionSource, indication = null) { playClick() } else Modifier)
     ) {
-        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+        // Reflexo subtil no topo do cartão -- o "vidro" do efeito frosted glass.
+        Column(modifier = Modifier.background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.07f), Color.Transparent))).padding(vertical = 12.dp)) {
             Text(title, fontSize = 16.sp, fontFamily = theme.fontFamily, fontWeight = FontWeight.Bold, color = if (isFocused && enabled) theme.primary else theme.text, modifier = Modifier.padding(horizontal = 16.dp))
-            if (subtitle.isNotEmpty()) { Text(subtitle, fontSize = 12.sp, fontFamily = theme.fontFamily, color = theme.text.copy(alpha = 0.6f), modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) } else { Spacer(modifier = Modifier.height(8.dp)) }
+            if (subtitle.isNotEmpty()) { Text(subtitle, fontSize = 12.sp, fontFamily = theme.fontFamily, color = theme.secondaryText, modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) } else { Spacer(modifier = Modifier.height(8.dp)) }
             HorizontalDivider(color = theme.text.copy(alpha = 0.1f), thickness = 1.dp)
-            Column(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.2f))) { content() }
+            Column(modifier = Modifier.fillMaxWidth().background(theme.scrim)) { content() }
         }
     }
 }
@@ -1117,23 +1082,23 @@ fun ConsoleToggle(checked: Boolean, theme: ConsoleTheme, onCheckedChange: (Boole
 }
 
 @Composable
-fun ConsoleRemapDialog(initialValue: Int, theme: ConsoleTheme, onCancel: () -> Unit, onReset: () -> Unit, onSave: (Int) -> Unit) {
+fun ConsoleRemapDialog(initialValue: Int, theme: ConsoleTheme, isEn: Boolean, onCancel: () -> Unit, onReset: () -> Unit, onSave: (Int) -> Unit) {
     val focusRequester = remember { FocusRequester() }
     var userValue by remember { mutableIntStateOf(initialValue) }
 
     Dialog(onDismissRequest = onCancel) {
         Surface(shape = RoundedCornerShape(16.dp), color = theme.surface, modifier = Modifier.focusRequester(focusRequester).focusable().onKeyEvent { if (it.type == KeyEventType.KeyUp) { userValue = it.nativeKeyEvent.keyCode }; true }) {
             Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Mapear Botão", color = theme.primary, fontWeight = FontWeight.Bold, fontSize = 20.sp, fontFamily = theme.fontFamily)
+                Text(if (isEn) "Remap Button" else "Mapear Botão", color = theme.primary, fontWeight = FontWeight.Bold, fontSize = 20.sp, fontFamily = theme.fontFamily)
                 Spacer(Modifier.height(16.dp))
-                Text("Pressione o novo botão...", color = theme.text.copy(alpha = 0.7f), fontFamily = theme.fontFamily)
+                Text(if (isEn) "Press the new button..." else "Pressione o novo botão...", color = theme.text.copy(alpha = 0.7f), fontFamily = theme.fontFamily)
                 Spacer(Modifier.height(8.dp))
                 Text(KeyEvent.keyCodeToString(userValue).replace("KEYCODE_", ""), color = theme.text, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = theme.fontFamily)
                 Spacer(Modifier.height(24.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    Button(onClick = onReset, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) { Text("Padrão", color = theme.text, fontFamily = theme.fontFamily) }
-                    Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) { Text("Cancelar", color = theme.text, fontFamily = theme.fontFamily) }
-                    Button(onClick = { onSave(userValue) }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Salvar", color = Color.White, fontFamily = theme.fontFamily) }
+                    Button(onClick = onReset, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) { Text(if (isEn) "Default" else "Padrão", color = theme.text, fontFamily = theme.fontFamily) }
+                    Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = theme.background)) { Text(if (isEn) "Cancel" else "Cancelar", color = theme.text, fontFamily = theme.fontFamily) }
+                    Button(onClick = { onSave(userValue) }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text(if (isEn) "Save" else "Salvar", color = theme.onPrimary, fontFamily = theme.fontFamily) }
                 }
             }
         }

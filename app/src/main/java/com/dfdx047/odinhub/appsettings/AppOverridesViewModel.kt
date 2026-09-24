@@ -11,7 +11,13 @@ import com.dfdx047.odinhub.data.AppOverrideEntity
 import com.dfdx047.odinhub.data.AppOverrideRepository
 import com.dfdx047.odinhub.data.SharedPrefsRepo
 import com.dfdx047.odinhub.models.AppOverrideLabels
+import com.dfdx047.odinhub.models.ButtonMacros
 import com.dfdx047.odinhub.models.FanMode
+import com.dfdx047.odinhub.models.MacroMode
+import com.dfdx047.odinhub.models.MacroStep
+import com.dfdx047.odinhub.models.TdpProfiles
+import com.dfdx047.odinhub.tools.hardware.ClockTables
+import com.dfdx047.odinhub.tools.hardware.PerformanceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +37,8 @@ data class AppOverrideUiState(
     // outro cartão), incompatível com o resto da app.
     val limitMode: String = "TDP",
     val tdpWatts: Float = 15f,
+    /** Perfil de TDP selecionado (ver TdpProfiles); "custom" = o valor livre do slider. */
+    val tdpProfileId: String = TdpProfiles.ID_TRIPLE_A,
     val perfClockMHz: Float = 3530f,
     val primeClockMHz: Float = 4320f,
     val gpuClockMHz: Float = 1100f,
@@ -51,6 +59,16 @@ data class AppOverrideUiState(
     val reshadeProfile: String = "Native",
     val saturationOverride: Float = 1.0f,
     val temperatureOverride: Float = 6500f,
+    /** `true` = este jogo usa a sua própria saturação/temperatura (senão segue a aba Display). */
+    val displayOverride: Boolean = false,
+    /** Limite térmico deste jogo (ThermalLimitModes), ou `null` = segue o global. */
+    val thermalMode: String? = null,
+    /** Macros de M1/M2 deste jogo (ver MacroMode) e qual está aberto no editor ("m1"/"m2"). */
+    val m1MacroMode: MacroMode = MacroMode.GLOBAL,
+    val m1MacroSteps: List<MacroStep> = emptyList(),
+    val m2MacroMode: MacroMode = MacroMode.GLOBAL,
+    val m2MacroSteps: List<MacroStep> = emptyList(),
+    val macroEditorFor: String? = null,
 
     val isSaved: Boolean = false,
     val availableReshadeProfiles: List<String> = listOf("Native", "Vibrant", "Retro", "HDR Boost", "Game Clarity", "Cinematic"),
@@ -69,11 +87,18 @@ class AppOverrideViewModel @Inject constructor(
     // Room em vez de dois caminhos de escrita desligados um do outro.
     private val overrideRepository: AppOverrideRepository,
     private val prefs: SharedPrefsRepo,
+    performanceManager: PerformanceManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AppOverrideUiState())
     val uiState: StateFlow<AppOverrideUiState> = _uiState.asStateFlow()
+
+    /** Tabelas reais de frequências do SoC (as mesmas do Settings e do overlay). */
+    val clockTables: StateFlow<ClockTables> = performanceManager.clockTables
+
+    /** Idioma da UI, o mesmo escolhido no ecrã principal (ver SharedPrefsRepo.isEnglish). */
+    val isEnglish: StateFlow<Boolean> = prefs.isEnglishFlow
 
     /**
      * Passa a `true` no primeiro toque do utilizador neste ecrã. A partir daí, [observeOverride]
@@ -138,7 +163,9 @@ class AppOverrideViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 limitMode = entity.limitMode,
-                tdpWatts = entity.tdpWatts ?: it.tdpWatts,
+                // A sentinela abaixo de 1 W significa "Stock (sem limite)" -- ver TdpProfiles.
+                tdpWatts = entity.tdpWatts?.takeUnless { w -> TdpProfiles.isStockWatts(w) } ?: it.tdpWatts,
+                tdpProfileId = entity.tdpWatts?.let { w -> TdpProfiles.idForWatts(w) } ?: it.tdpProfileId,
                 perfClockMHz = entity.perfClockKHz?.let { khz -> khz / 1000f } ?: it.perfClockMHz,
                 primeClockMHz = entity.primeClockKHz?.let { khz -> khz / 1000f } ?: it.primeClockMHz,
                 gpuClockMHz = entity.gpuClockHz?.let { hz -> hz / 1_000_000f } ?: it.gpuClockMHz,
@@ -157,6 +184,12 @@ class AppOverrideViewModel @Inject constructor(
                 reshadeProfile = entity.reshadeProfile,
                 saturationOverride = entity.saturationOverride,
                 temperatureOverride = entity.temperatureOverride,
+                displayOverride = entity.displayOverride,
+                thermalMode = entity.thermalMode,
+                m1MacroMode = MacroMode.of(entity.m1Macro),
+                m1MacroSteps = ButtonMacros.decode(entity.m1Macro),
+                m2MacroMode = MacroMode.of(entity.m2Macro),
+                m2MacroSteps = ButtonMacros.decode(entity.m2Macro),
 
                 isSaved = true
             )
@@ -169,7 +202,19 @@ class AppOverrideViewModel @Inject constructor(
     }
 
     fun updateLimitMode(mode: String) { markEdited(); _uiState.update { it.copy(limitMode = mode) } }
-    fun updateTdp(watts: Float) { markEdited(); _uiState.update { it.copy(tdpWatts = watts) } }
+    /** Slider (1..25 W): o valor é livre e a seleção passa para "custom" (nenhum chip). */
+    fun updateTdp(watts: Float) {
+        markEdited()
+        val clamped = watts.coerceIn(TdpProfiles.TDP_MIN_WATTS, TdpProfiles.TDP_MAX_WATTS)
+        _uiState.update { it.copy(tdpWatts = clamped, tdpProfileId = TdpProfiles.ID_CUSTOM) }
+    }
+
+    /** Perfil fixo de TdpProfiles: watts exatos do perfil (Stock = sem limite). */
+    fun selectTdpProfile(profileId: String) {
+        val profile = TdpProfiles.byId(profileId) ?: return
+        markEdited()
+        _uiState.update { it.copy(tdpProfileId = profile.id, tdpWatts = profile.watts ?: it.tdpWatts) }
+    }
 
     /** GPU é sempre passada separadamente -- ver comentário em ClockPresets.kt sobre porquê. */
     fun updateClocks(perfMHz: Float, primeMHz: Float, gpuMHz: Float) {
@@ -194,16 +239,38 @@ class AppOverrideViewModel @Inject constructor(
         _uiState.update { it.copy(reshadeProfile = reshade, saturationOverride = saturation, temperatureOverride = temperature) }
     }
 
+    fun updateDisplayOverride(enabled: Boolean) { markEdited(); _uiState.update { it.copy(displayOverride = enabled) } }
+    fun updateSaturation(value: Float) { markEdited(); _uiState.update { it.copy(saturationOverride = value.coerceIn(0f, 2f)) } }
+    fun updateTemperature(value: Float) { markEdited(); _uiState.update { it.copy(temperatureOverride = value.coerceIn(4000f, 9000f)) } }
+    fun updateThermalMode(mode: String?) { markEdited(); _uiState.update { it.copy(thermalMode = mode) } }
+
+    fun updateMacroMode(button: String, mode: MacroMode) {
+        markEdited()
+        _uiState.update { if (button == "m1") it.copy(m1MacroMode = mode) else it.copy(m2MacroMode = mode) }
+        if (mode == MacroMode.CUSTOM) openMacroEditor(button)
+    }
+    fun openMacroEditor(button: String) { _uiState.update { it.copy(macroEditorFor = button) } }
+    fun closeMacroEditor() { _uiState.update { it.copy(macroEditorFor = null) } }
+    fun updateMacroSteps(button: String, steps: List<MacroStep>) {
+        markEdited()
+        _uiState.update {
+            if (button == "m1") it.copy(m1MacroSteps = steps, macroEditorFor = null) else it.copy(m2MacroSteps = steps, macroEditorFor = null)
+        }
+    }
+
     fun saveOverride() {
         viewModelScope.launch {
             val current = _uiState.value
             val multInt = current.lsfgMultiplier.replace("x", "").toIntOrNull() ?: 2
             val isTdp = current.limitMode == "TDP"
+            // Stock (sem limite) vai como a sentinela de TdpProfiles: `null` neste campo já
+            // significa "usa o valor global" para o ForegroundAppWatcherService.
+            val encodedTdp = TdpProfiles.encodeWatts(TdpProfiles.resolveWatts(current.tdpProfileId, current.tdpWatts))
 
             val entity = AppOverrideEntity(
                 packageName = current.packageName,
                 limitMode = current.limitMode,
-                tdpWatts = current.tdpWatts,
+                tdpWatts = encodedTdp,
                 perfClockKHz = (current.perfClockMHz * 1000).toLong(),
                 primeClockKHz = (current.primeClockMHz * 1000).toLong(),
                 gpuClockHz = (current.gpuClockMHz * 1_000_000).toLong(),
@@ -214,7 +281,7 @@ class AppOverrideViewModel @Inject constructor(
                 // modos estão em vigor ao mesmo tempo (não estão -- ver limitMode). Calculados
                 // com o MESMO helper que o overlay usa (AppOverrideLabels), para que uma regra
                 // criada em jogo e outra criada aqui descrevam os mesmos valores da mesma forma.
-                tdpProfile = if (isTdp) AppOverrideLabels.tdpLabel(current.tdpWatts) else "Stock",
+                tdpProfile = if (isTdp) AppOverrideLabels.tdpLabel(encodedTdp) else "Stock",
                 clockProfile = if (!isTdp) AppOverrideLabels.clockLabel(current.perfClockMHz, current.primeClockMHz) else "Stock",
                 fanProfile = AppOverrideLabels.fanLabel(current.fanSettingsValue),
 
@@ -230,7 +297,11 @@ class AppOverrideViewModel @Inject constructor(
 
                 reshadeProfile = current.reshadeProfile,
                 saturationOverride = current.saturationOverride,
-                temperatureOverride = current.temperatureOverride
+                temperatureOverride = current.temperatureOverride,
+                displayOverride = current.displayOverride,
+                thermalMode = current.thermalMode,
+                m1Macro = MacroMode.encode(current.m1MacroMode, current.m1MacroSteps),
+                m2Macro = MacroMode.encode(current.m2MacroMode, current.m2MacroSteps),
             )
             overrideRepository.upsert(entity)
             _uiState.update { it.copy(isSaved = true) }

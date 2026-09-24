@@ -62,39 +62,19 @@ class ShellExecutor @Inject constructor() {
     }
 
     /**
-     * Quando `true`, os comandos passam por `su -c` em vez do PServerBinder.
-     *
-     * O interruptor "Usar KernelSU (Root)" no ecrã de Settings escrevia esta preferência e mais
-     * nada -- nenhum sítio no projeto a lia, portanto era um controlo puramente decorativo. Fica
-     * aqui como campo (em vez de o ShellExecutor depender do SharedPrefsRepo) para não criar um
-     * ciclo de dependências: quem sabe da preferência é o MainViewModel, que a empurra para cá.
+     * O PServerBinder da AYN corre como root (uid 0): tudo o que a app escreve em sysfs -- TDP,
+     * clocks, GPU, ventoinha, limite térmico -- passa por ele. Por isso a app NÃO usa `su` nem
+     * KernelSU/Magisk em lado nenhum (o antigo interruptor "Usar KernelSU" e o caminho `su -c`
+     * foram removidos: além de desnecessários, o `su -c id` de deteção fazia aparecer um pedido
+     * de root a cada arranque em aparelhos com KernelSU).
      */
-    @Volatile
-    var preferSuBinary: Boolean = false
-
-    /** Há um binário `su` utilizável neste aparelho? Avaliado uma vez, à primeira necessidade. */
-    val suAvailable: Boolean by lazy {
-        runCatching {
-            val process = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
-            val finished = process.waitFor() == 0
-            process.destroy()
-            finished
-        }.getOrDefault(false)
-    }
+    val canWriteSysfs: Boolean get() = pServerAvailable
 
     fun executeAsRoot(cmd: String): Result<String?> {
         val localBinder = binder
-
-        // Caminho alternativo: ou porque o utilizador escolheu root explicitamente, ou porque
-        // este aparelho não tem PServerBinder (firmware não-AYN). Sem isto, num aparelho sem
-        // PServer a app não conseguia aplicar absolutamente nada.
-        if ((preferSuBinary || localBinder == null) && suAvailable) {
-            return executeWithSu(cmd)
-        }
-
         if (localBinder == null) {
-            Log.w(TAG, "executeAsRoot: PServer indisponível e sem `su`, comando descartado: $cmd")
-            return Result.failure(IllegalStateException("No root channel available (PServer or su)"))
+            Log.w(TAG, "executeAsRoot: PServerBinder indisponível, comando descartado: $cmd")
+            return Result.failure(IllegalStateException("PServerBinder not available"))
         }
 
         val data = Parcel.obtain()
@@ -126,23 +106,6 @@ class ShellExecutor @Inject constructor() {
             data.recycle()
             reply.recycle()
         }
-    }
-
-    /**
-     * Executa via `su -c`. Devolve stdout já aparado, ou `null` quando vazio — o mesmo contrato
-     * do caminho do PServer, para que quem chama não precise de saber qual foi usado.
-     */
-    private fun executeWithSu(cmd: String): Result<String?> = runCatching {
-        val process = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-        val exitCode = process.waitFor()
-        process.destroy()
-
-        if (exitCode != 0) {
-            Log.e(TAG, "executeWithSu: '$cmd' terminou com código $exitCode: $output")
-            throw IllegalStateException("su exited with $exitCode: $output")
-        }
-        output.ifEmpty { null }
     }
 
     private companion object {

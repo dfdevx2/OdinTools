@@ -2,6 +2,7 @@ package com.dfdx047.odinhub.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.dfdx047.odinhub.models.TdpProfiles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,6 +14,25 @@ class SharedPrefsRepo @Inject constructor(
     @ApplicationContext context: Context
 ) {
     private val prefs: SharedPreferences = context.getSharedPreferences(context.packageName + "_preferences", Context.MODE_PRIVATE)
+
+    /**
+     * Idioma da interface (EN/PT-BR), persistido e partilhado por TODOS os ecrãs.
+     *
+     * BUG QUE ISTO CORRIGE: o idioma vivia só num `rememberSaveable` do ecrã principal. O overlay,
+     * o editor de regras por app e qualquer arranque novo da app não o viam -- por isso apareciam
+     * textos em português mesmo com o inglês escolhido. Por omissão segue o idioma do sistema.
+     */
+    var isEnglish: Boolean
+        get() = prefs.getBoolean("app_language_en", java.util.Locale.getDefault().language != "pt")
+        set(value) {
+            prefs.edit().putBoolean("app_language_en", value).apply()
+            _isEnglishFlow.value = value
+        }
+    private val _isEnglishFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getBoolean("app_language_en", java.util.Locale.getDefault().language != "pt")
+    )
+    /** Versão reativa de [isEnglish] -- o overlay e os ecrãs recompõem-se ao trocar de idioma. */
+    val isEnglishFlow: kotlinx.coroutines.flow.StateFlow<Boolean> get() = _isEnglishFlow
 
     var isFirstRun: Boolean get() = prefs.getBoolean("is_first_run", true); set(value) = prefs.edit().putBoolean("is_first_run", value).apply()
     var selectedThemeIndex: Int get() = prefs.getInt("selected_theme_index", 1); set(value) = prefs.edit().putInt("selected_theme_index", value).apply()
@@ -33,12 +53,71 @@ class SharedPrefsRepo @Inject constructor(
     var disabledL2r2Style: String? get() = prefs.getString("disabled_l2r2_style", null); set(value) = prefs.edit().putString("disabled_l2r2_style", value).apply()
     var saturationOverride: Float get() = prefs.getFloat("saturation_override", 1.0f); set(value) = prefs.edit().putFloat("saturation_override", value).apply()
     var temperatureOverride: Float get() = prefs.getFloat("temperature_override", 6500f); set(value) = prefs.edit().putFloat("temperature_override", value).apply()
+    /** Já se desfez o estado antigo (Night Display ligado / HWC desativado)? Ver DisplayManager. */
+    var displaySaturationActive: Boolean get() = prefs.getBoolean("display_sat_active", false); set(value) = prefs.edit().putBoolean("display_sat_active", value).apply()
+    var displayMatrixActive: Boolean get() = prefs.getBoolean("display_matrix_active", false); set(value) = prefs.edit().putBoolean("display_matrix_active", value).apply()
+    var displayColorMigrated: Boolean get() = prefs.getBoolean("display_color_migrated_v2", false); set(value) = prefs.edit().putBoolean("display_color_migrated_v2", value).apply()
     var appOverridesEnabled: Boolean get() = prefs.getBoolean("app_overrides_enabled", false); set(value) = prefs.edit().putBoolean("app_overrides_enabled", value).apply()
-    var useRootTarget: Boolean get() = prefs.getBoolean("use_root_target", false); set(value) = prefs.edit().putBoolean("use_root_target", value).apply()
     var fanMode: Int get() = prefs.getInt("fan_mode", 0); set(value) = prefs.edit().putInt("fan_mode", value).apply()
+
+    // ---- Gestos do botão Home (ver HomeGestureDetector / ButtonActionHandler) ----
+    var homeGestureConfig: com.dfdx047.odinhub.models.HomeGestureConfig
+        get() {
+            val d = com.dfdx047.odinhub.models.HomeGestureConfig()
+            fun action(key: String, def: com.dfdx047.odinhub.models.ButtonAction) =
+                com.dfdx047.odinhub.models.ButtonAction.fromId(prefs.getString(key, def.id))
+            return com.dfdx047.odinhub.models.HomeGestureConfig(
+                enabled = prefs.getBoolean("home_gestures_enabled", d.enabled),
+                singleTap = action("home_single_action", d.singleTap),
+                doubleTap = action("home_double_action", d.doubleTap),
+                tripleTap = action("home_triple_action", d.tripleTap),
+                longPress = action("home_long_action", d.longPress),
+                longPressMs = prefs.getLong("home_long_press_ms", d.longPressMs),
+            )
+        }
+        set(value) {
+            prefs.edit()
+                .putBoolean("home_gestures_enabled", value.enabled)
+                .putString("home_single_action", value.singleTap.id)
+                .putString("home_double_action", value.doubleTap.id)
+                .putString("home_triple_action", value.tripleTap.id)
+                .putString("home_long_action", value.longPress.id)
+                .putLong("home_long_press_ms", value.longPressMs)
+                .apply()
+        }
+
+    // ---- Macros dos botões traseiros (ver ButtonMacros). `button` = "m1" | "m2". ----
+    fun macroEnabled(button: String): Boolean = prefs.getBoolean("macro_${button}_enabled", false)
+    fun macroSteps(button: String): String? = prefs.getString("macro_${button}_steps", null)
+    fun saveMacro(button: String, enabled: Boolean, encodedSteps: String) {
+        prefs.edit().putBoolean("macro_${button}_enabled", enabled).putString("macro_${button}_steps", encodedSteps).apply()
+    }
+    /** Mapeamento nativo que estava no botão antes de a macro o substituir pela tecla-gatilho. */
+    fun macroNativeBackup(button: String): Int = prefs.getInt("macro_${button}_native_backup", -1)
+    fun setMacroNativeBackup(button: String, keyCode: Int) { prefs.edit().putInt("macro_${button}_native_backup", keyCode).apply() }
 
     var activeLimitMode: String get() = prefs.getString("active_limit_mode", "TDP") ?: "TDP"; set(value) = prefs.edit().putString("active_limit_mode", value).apply()
     var tdpValue: Float get() = prefs.getFloat("tdp_value", 15f); set(value) = prefs.edit().putFloat("tdp_value", value).apply()
+
+    /**
+     * Perfil de TDP selecionado ("power_save" | "balanced" | "triple_a" | "stock" | "custom" --
+     * ver TdpProfiles). Independente do slider: `tdpValue` é o valor do slider, e só é o que se
+     * aplica quando o perfil é "custom". Instalações antigas (sem a chave) resolvem-se a partir
+     * dos watts guardados, para que 15 W continue a aparecer como "Triple A".
+     */
+    var tdpProfileId: String
+        get() = prefs.getString("tdp_profile_id", null) ?: TdpProfiles.idForWatts(tdpValue)
+        set(value) = prefs.edit().putString("tdp_profile_id", value).apply()
+
+    // Limite térmico (via PServerBinder) -- ver ThermalManager. `thermalLimitMode` é o id da opção escolhida
+    // ("stock" | "85" | "90" | "95" | "unthrottled"); `thermalTripBackup` guarda, em JSON, as
+    // temperaturas originais dos trip points ANTES da primeira modificação, para o "Stock"
+    // conseguir repô-las mesmo depois de um reboot da app.
+    var thermalLimitMode: String get() = prefs.getString("thermal_limit_mode", "stock") ?: "stock"; set(value) = prefs.edit().putString("thermal_limit_mode", value).apply()
+    var thermalTripBackup: String? get() = prefs.getString("thermal_trip_backup", null); set(value) = prefs.edit().putString("thermal_trip_backup", value).apply()
+    /** Valores originais do nó `mode` de cada zona (JSON caminho->valor), guardados antes de os desativar. */
+    var thermalModeBackup: String? get() = prefs.getString("thermal_mode_backup", null); set(value) = prefs.edit().putString("thermal_mode_backup", value).apply()
+    var thermalDisableZoneMode: Boolean get() = prefs.getBoolean("thermal_disable_zone_mode", false); set(value) = prefs.edit().putBoolean("thermal_disable_zone_mode", value).apply()
     var cpuPerfClock: Float get() = prefs.getFloat("cpu_perf_clock", 3530f); set(value) = prefs.edit().putFloat("cpu_perf_clock", value).apply()
     var cpuPrimeClock: Float get() = prefs.getFloat("cpu_prime_clock", 4320f); set(value) = prefs.edit().putFloat("cpu_prime_clock", value).apply()
     var gpuClock: Float get() = prefs.getFloat("gpu_clock", 1100f); set(value) = prefs.edit().putFloat("gpu_clock", value).apply()

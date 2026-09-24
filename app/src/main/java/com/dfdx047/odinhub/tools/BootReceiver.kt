@@ -8,6 +8,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import com.dfdx047.odinhub.data.SharedPrefsRepo
 import com.dfdx047.odinhub.service.GamingOverlayService
 import com.dfdx047.odinhub.tools.hardware.DisplayManager
+import com.dfdx047.odinhub.tools.hardware.ThermalManager
 import com.dfdx047.odinhub.tools.hardware.VulkanNativeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,7 @@ class BootReceiver : BroadcastReceiver() {
     @Inject lateinit var settings: SettingsRepo
     @Inject lateinit var prefs: SharedPrefsRepo
     @Inject lateinit var displayManager: DisplayManager
+    @Inject lateinit var thermalManager: ThermalManager
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) {
@@ -58,12 +60,22 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 settings.applyRequiredSettings()
 
-                displayManager.applySaturation(prefs.saturationOverride)
-                displayManager.applyTemperature(prefs.temperatureOverride)
+                if (intent.action == Intent.ACTION_BOOT_COMPLETED) displayManager.onDeviceBoot()
+                displayManager.applyColor(prefs.saturationOverride, prefs.temperatureOverride)
 
-                VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
-                VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
-                VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+                // Motor gráfico: só quando existir (FeatureFlags) -- evita carregar a biblioteca nativa à toa.
+                if (com.dfdx047.odinhub.models.FeatureFlags.GRAPHICS_ENGINE_AVAILABLE) {
+                    VulkanNativeBridge.applyLsfg(prefs.globalLsfgEnabled, prefs.lsfgMultiplier, prefs.lsfgFramePacing)
+                    VulkanNativeBridge.applySgsr(prefs.globalSgsrEnabled, prefs.sgsrMode)
+                    VulkanNativeBridge.applyReshade(prefs.reshadeProfile, prefs.saturationOverride, prefs.temperatureOverride)
+                }
+
+                // Limite térmico (root): os trip points voltam aos valores de fábrica a cada
+                // reboot; se o utilizador escolheu outra coisa que não Stock, reaplica. O próprio
+                // ThermalManager já o faz no seu `init` -- esta chamada é só a garantia de que
+                // acontece mesmo que o singleton já existisse.
+                runCatching { thermalManager.reapplyPersisted() }
+                    .onFailure { Log.w(TAG, "Limite térmico não pôde ser reaplicado no boot", it) }
 
                 if (prefs.overlayEnabled) {
                     // A partir do Android O, arrancar um serviço a partir de um processo em

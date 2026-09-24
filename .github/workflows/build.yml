@@ -3,12 +3,17 @@ name: Build Odin Hub
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Usado pelo job "release" abaixo para saber se ja correu o build com sucesso e
+    # onde ficou o APK, sem repetir a compilacao.
+    outputs:
+      apk-path: app/build/outputs/apk/release/app-release.apk
 
     steps:
       - name: Checkout do codigo
@@ -40,8 +45,37 @@ jobs:
       - name: Compilar o APK (Debug)
         run: ./gradlew assembleDebug
 
+      # So compila o Release quando o build foi disparado por uma tag "v*" (ver job "release"
+      # abaixo) -- em push normal para main / PR basta o Debug para validar o codigo.
+      - name: Compilar o APK (Release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./gradlew assembleRelease
+
       - name: Fazer Upload do APK
         uses: actions/upload-artifact@v4
         with:
           name: OdinHub
           path: app/build/outputs/apk/**/*.apk
+
+  release:
+    # So corre quando o build acima passa E o gatilho foi uma tag de versao (ex.: v0.6).
+    # Cria sempre um Release em DRAFT -- nunca publica sozinho, fica so pronto a rever e a
+    # publicar manualmente no GitHub quando quiseres lancar de facto.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Baixar o APK compilado no job anterior
+        uses: actions/download-artifact@v4
+        with:
+          name: OdinHub
+          path: apk
+
+      - name: Criar Release em rascunho (draft)
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: apk/release/app-release.apk

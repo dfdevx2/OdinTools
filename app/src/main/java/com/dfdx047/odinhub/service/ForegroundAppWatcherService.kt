@@ -8,8 +8,14 @@ import com.dfdx047.odinhub.data.AppOverrideEntity
 import com.dfdx047.odinhub.data.AppOverrideRepository
 import com.dfdx047.odinhub.data.SharedPrefsRepo
 import com.dfdx047.odinhub.models.FanMode
+import com.dfdx047.odinhub.models.FeatureFlags
+import com.dfdx047.odinhub.models.TdpProfiles
+import com.dfdx047.odinhub.tools.ButtonActionHandler
 import com.dfdx047.odinhub.tools.ForegroundAppTracker
+import com.dfdx047.odinhub.tools.HomeGestureDetector
+import com.dfdx047.odinhub.tools.hardware.DisplayManager
 import com.dfdx047.odinhub.tools.hardware.PerformanceManager
+import com.dfdx047.odinhub.tools.hardware.ThermalManager
 import com.dfdx047.odinhub.tools.hardware.VulkanNativeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +31,9 @@ class ForegroundAppWatcherService : AccessibilityService() {
 
     @Inject lateinit var prefs: SharedPrefsRepo
     @Inject lateinit var performanceManager: PerformanceManager
+    @Inject lateinit var thermalManager: ThermalManager
+    @Inject lateinit var displayManager: DisplayManager
+    @Inject lateinit var buttonActions: ButtonActionHandler
 
     // Fonte única de verdade das regras por jogo (ver AppOverrideRepository). Substitui as
     // leituras diretas de SharedPrefs (`prefs.getPerApp*`) que existiam aqui antes: aquelas
@@ -38,6 +47,15 @@ class ForegroundAppWatcherService : AccessibilityService() {
     @Inject lateinit var foregroundTracker: ForegroundAppTracker
 
     private var currentApp = ""
+
+    /** Gestos do botão Home (toque simples/duplo/triplo/longo) -- ver HomeGestureDetector. */
+    private val homeGestures by lazy {
+        HomeGestureDetector(
+            handler = android.os.Handler(android.os.Looper.getMainLooper()),
+            config = { prefs.homeGestureConfig },
+            fire = { buttonActions.perform(it) },
+        )
+    }
 
     /**
      * `onAccessibilityEvent` corre na thread principal do serviço, e aplicar um perfil faz várias
@@ -62,6 +80,7 @@ class ForegroundAppWatcherService : AccessibilityService() {
         // Enquanto este serviço estiver ligado, a deteção é por eventos e a sondagem de reserva
         // do tracker fica em repouso.
         foregroundTracker.setAccessibilityConnected(true)
+        buttonActions.attach(this)
 
         // Nota: não usar `rootInActiveWindow` aqui. Este serviço está declarado com
         // `canRetrieveWindowContent="false"` (ver accessibility_service_config.xml), portanto essa
@@ -84,6 +103,10 @@ class ForegroundAppWatcherService : AccessibilityService() {
             }
             return true
         }
+        // Macros de M1/M2 (a tecla-gatilho só é consumida se a macro desse botão estiver ligada).
+        if (buttonActions.handleMacroKey(event)) return true
+        // Gestos do Home (só com a opção ligada; desligada, o Home fica 100% nativo).
+        if (homeGestures.onKeyEvent(event)) return true
         return super.onKeyEvent(event)
     }
 
@@ -109,6 +132,11 @@ class ForegroundAppWatcherService : AccessibilityService() {
             val className = event.className?.toString().orEmpty()
             if (!className.contains("MainActivity")) return
         }
+
+        // Cortina de notificações, heads-up, teclado, diálogos do sistema: janelas por cima do
+        // jogo que NÃO significam sair dele. Ignorá-las é o que impede o overlay de desaparecer
+        // ao puxar a barra de notificações (ver ForegroundAppTracker.isTransientWindow).
+        if (foregroundTracker.isTransientWindow(pkg)) return
 
         if (pkg == currentApp) return
         currentApp = pkg
@@ -150,8 +178,15 @@ class ForegroundAppWatcherService : AccessibilityService() {
         // sem override, usa o modo global (prefs.activeLimitMode), igual ao ecrã de Settings.
         val limitMode = override?.limitMode ?: prefs.activeLimitMode
         if (limitMode == "TDP") {
-            val tdp = override?.tdpWatts ?: prefs.tdpValue
-            performanceManager.applyDynamicTdp(tdp)
+            // Regra do jogo: os watts guardados (a sentinela abaixo de 1 W significa "Stock, sem
+            // limite" -- ver TdpProfiles.STOCK_SENTINEL_WATTS). Sem regra: o perfil GLOBAL, que é
+            // o id do perfil selecionado (Stock = sem limite) ou o slider quando é "custom".
+            val tdp: Float? = if (override?.tdpWatts != null) {
+                override.tdpWatts
+            } else {
+                TdpProfiles.resolveWatts(prefs.tdpProfileId, prefs.tdpValue)
+            }
+            performanceManager.applyTdpSelection(tdp)
         } else {
             val perfKHz = override?.perfClockKHz ?: (prefs.cpuPerfClock * 1000).toLong()
             val primeKHz = override?.primeClockKHz ?: (prefs.cpuPrimeClock * 1000).toLong()
@@ -163,7 +198,23 @@ class ForegroundAppWatcherService : AccessibilityService() {
         val fanModeValue = override?.fanSettingsValue ?: prefs.fanMode
         performanceManager.applyFanMode(FanMode.fromSettingsValue(fanModeValue))
 
-        // 3. Gráficos, SGSR, LSFG e ReShade
+        // 3. Limite térmico por jogo (null = segue o global da aba Performance).
+        thermalManager.setAppOverride(override?.thermalMode)
+
+        // 4. Calibração de cor: a do jogo quando ele tem "cor própria" ligada, senão a global.
+        if (override?.displayOverride == true) {
+            displayManager.applyColor(override.saturationOverride, override.temperatureOverride)
+        } else {
+            displayManager.applyColor(prefs.saturationOverride, prefs.temperatureOverride)
+        }
+
+        // 5. Macros de M1/M2: as do jogo (null = segue o global). Também aponta o mapeamento
+        // nativo para a tecla-gatilho só quando há macro ativa.
+        buttonActions.setGameMacros(override?.m1Macro, override?.m2Macro)
+
+        // 6. Gráficos, SGSR, LSFG e ReShade -- só com o motor gráfico disponível
+        // (FeatureFlags.GRAPHICS_ENGINE_AVAILABLE); sem ele não há nada a aplicar.
+        if (!FeatureFlags.GRAPHICS_ENGINE_AVAILABLE) return
         val sgsr = override?.sgsrEnabled ?: prefs.globalSgsrEnabled
         val sgsrMode = override?.sgsrMode ?: prefs.sgsrMode
         VulkanNativeBridge.applySgsr(sgsr, sgsrMode)
@@ -174,9 +225,7 @@ class ForegroundAppWatcherService : AccessibilityService() {
         VulkanNativeBridge.applyLsfg(lsfg, lsfgMult, lsfgPacing)
 
         val reshade = override?.reshadeProfile ?: prefs.reshadeProfile
-        val saturation = override?.saturationOverride ?: prefs.saturationOverride
-        val temperature = override?.temperatureOverride ?: prefs.temperatureOverride
-        VulkanNativeBridge.applyReshade(reshade, saturation, temperature)
+        VulkanNativeBridge.applyReshade(reshade, prefs.saturationOverride, prefs.temperatureOverride)
     }
 
     override fun onInterrupt() {}
@@ -186,6 +235,8 @@ class ForegroundAppWatcherService : AccessibilityService() {
         // Devolve a deteção à sondagem de reserva: se este serviço for desligado (pelo utilizador
         // ou pelo sistema), o overlay não pode simplesmente deixar de funcionar.
         foregroundTracker.setAccessibilityConnected(false)
+        homeGestures.reset()
+        buttonActions.detach()
         scope.cancel()
     }
 

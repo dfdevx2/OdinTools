@@ -22,6 +22,9 @@ class AppOverrideListViewModel @Inject constructor(
     private val deviceUtils: DeviceUtils,
     private val prefs: SharedPrefsRepo,
 ) : ViewModel() {
+    /** Idioma da UI partilhado com o resto da app (SharedPrefsRepo.isEnglish). */
+    val isEnglish: kotlinx.coroutines.flow.StateFlow<Boolean> = prefs.isEnglishFlow
+
 
     private val _uiState = MutableStateFlow(AppOverrideListUiModel())
     val uiState: StateFlow<AppOverrideListUiModel> = _uiState.asStateFlow()

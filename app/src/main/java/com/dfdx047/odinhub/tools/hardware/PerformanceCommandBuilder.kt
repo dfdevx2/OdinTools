@@ -26,10 +26,21 @@ data class CpuPolicyNode(
  * ultrapassa o alvo (é um LIMITE máximo: arredondar para cima furaria o limite pedido). Se o alvo
  * ficar abaixo de tudo, usa o menor suportado. Sem lista, devolve o alvo inalterado.
  */
-fun snapToSupported(target: Long, supported: List<Long>): Long {
+fun snapToSupported(target: Long, supported: List<Long>, toleranceAbove: Long = SNAP_TOLERANCE): Long {
     if (supported.isEmpty()) return target
-    return supported.filter { it <= target }.maxOrNull() ?: supported.min()
+    return supported.filter { it <= target + toleranceAbove }.maxOrNull() ?: supported.min()
 }
+
+/**
+ * Folga (na mesma unidade da tabela) acima do alvo que ainda conta como "o mesmo OPP".
+ *
+ * BUG QUE ISTO CORRIGE: a UI mostra MHz inteiros (3532800 kHz aparece como "3532 MHz") e devolve
+ * 3532000 kHz. Com a comparação estrita `<=`, esse pedido caía no OPP ABAIXO (3321600) -- escolher
+ * o chip do máximo aplicava o penúltimo valor da tabela. 999 cobre o truncamento kHz->MHz (e os
+ * arredondamentos do ratio em Float) sem nunca saltar para o OPP seguinte, que está sempre a mais
+ * de 100 MHz de distância.
+ */
+const val SNAP_TOLERANCE = 999L
 
 /**
  * Uma escrita atómica num nó de sysfs, desenhada à volta do padrão "desbloquear (666) -> escrever
@@ -89,6 +100,13 @@ object PerformanceCommandBuilder {
      * (estilo Pulse, ver `calculateAutoTdpStep`) espaço real para descer até alvos baixos.
      */
     const val TDP_MIN_RATIO = 0.12f
+
+    /**
+     * Piso dos clocks MANUAIS. Cada chip da UI é um OPP real do SoC, escolhido de propósito pelo
+     * utilizador -- com o piso antigo de 30% os chips mais baixos da tabela (ex: 384 MHz no Perf,
+     * 1017 MHz no Prime) eram silenciosamente puxados para cima e não faziam nada.
+     */
+    const val MANUAL_MIN_RATIO = 0.05f
 
     /**
      * Gera uma escrita de `scaling_max_freq` por cada política de CPU descoberta em tempo de
@@ -154,8 +172,8 @@ object PerformanceCommandBuilder {
         val maxPerf = sorted.getOrNull(sorted.lastIndex - 1)?.cpuinfoMaxFreqKHz ?: fallbackPerfMaxKHz
         val maxPrime = sorted.lastOrNull()?.cpuinfoMaxFreqKHz ?: fallbackPrimeMaxKHz
 
-        val perfRatio = (perfClockKHz.toFloat() / maxPerf.toFloat()).coerceIn(CPU_MIN_RATIO, CPU_MAX_RATIO)
-        val primeRatio = (primeClockKHz.toFloat() / maxPrime.toFloat()).coerceIn(CPU_MIN_RATIO, CPU_MAX_RATIO)
+        val perfRatio = (perfClockKHz.toFloat() / maxPerf.toFloat()).coerceIn(MANUAL_MIN_RATIO, CPU_MAX_RATIO)
+        val primeRatio = (primeClockKHz.toFloat() / maxPrime.toFloat()).coerceIn(MANUAL_MIN_RATIO, CPU_MAX_RATIO)
         return perfRatio to primeRatio
     }
 }

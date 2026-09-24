@@ -1,7 +1,12 @@
 package com.dfdx047.odinhub.main
 
 import com.dfdx047.odinhub.data.CustomProfile
+import com.dfdx047.odinhub.models.HomeGestureConfig
+import com.dfdx047.odinhub.models.MacroStep
+import com.dfdx047.odinhub.models.TdpProfiles
 import com.dfdx047.odinhub.tools.DeviceType
+import com.dfdx047.odinhub.tools.hardware.ClockTables
+import com.dfdx047.odinhub.tools.hardware.ThermalStatus
 
 data class MainUiModel(
     val deviceType: DeviceType = DeviceType.ODIN2,
@@ -18,7 +23,14 @@ data class MainUiModel(
     val currentButtonKeyCode: Int = 0,
     val overlayShortcutKeyCode: Int = 0,
 
-    val singlePressHomeEnabled: Boolean = false,
+    /** Gestos do botão Home (substituem o antigo "Toque único no Home", que já existe nas definições da AYN). */
+    val homeGestures: HomeGestureConfig = HomeGestureConfig(),
+    /** Macros dos botões traseiros: estado de cada um e qual está aberto no editor ("m1"/"m2"). */
+    val m1MacroEnabled: Boolean = false,
+    val m1MacroSteps: List<MacroStep> = emptyList(),
+    val m2MacroEnabled: Boolean = false,
+    val m2MacroSteps: List<MacroStep> = emptyList(),
+    val macroEditorFor: String? = null,
     val appOverridesEnabled: Boolean = false,
 
     val selectedThemeIndex: Int = 1,
@@ -26,11 +38,16 @@ data class MainUiModel(
 
     val performanceProfile: String = "Stock",
     val tdpValue: Float = 15f,
+    /** Perfil de TDP selecionado -- ver TdpProfiles ("custom" = nenhum chip destacado). */
+    val tdpProfileId: String = TdpProfiles.ID_TRIPLE_A,
+    /** Tabelas reais de frequências do SoC (MHz), para os chips de clocks. */
+    val clockTables: ClockTables = ClockTables.EMPTY,
+    /** Estado do limite térmico (via PServerBinder) -- ver ThermalManager. */
+    val thermalStatus: ThermalStatus = ThermalStatus(),
     val cpuPerfClock: Float = 3530f,
     val cpuPrimeClock: Float = 4320f,
     val gpuClock: Float = 1100f,
     val activeLimitMode: String = "TDP",
-    val useRootTarget: Boolean = false,
     val fanMode: Int = 0,
     val customProfiles: List<CustomProfile> = emptyList(),
 

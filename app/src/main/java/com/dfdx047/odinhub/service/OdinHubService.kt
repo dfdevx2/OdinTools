@@ -21,6 +21,7 @@ import javax.inject.Inject
 class OdinHubService : Service() {
 
     @Inject lateinit var performanceManager: PerformanceManager
+    @Inject lateinit var prefs: com.dfdx047.odinhub.data.SharedPrefsRepo
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollJob: Job? = null
@@ -90,7 +91,7 @@ class OdinHubService : Service() {
     private fun buildNotification() = NotificationCompat.Builder(this, "odinhub_channel")
         .setSmallIcon(R.drawable.ic_app_settings)
         .setContentTitle("Odin Hub: Performance")
-        .setContentText("Motor ligado e monitorando...")
+        .setContentText(if (prefs.isEnglish) "Engine running and monitoring..." else "Motor ligado e a monitorizar...")
         .setOngoing(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build()

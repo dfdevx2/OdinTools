@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [AppOverrideEntity::class],
-    version = 5, // v5: adiciona limitMode + valores numéricos reais de TDP/Clock/Fan por jogo
+    version = 7, // v5: limitMode + valores reais de TDP/Clock/Fan; v6: displayOverride + thermalMode; v7: m1Macro/m2Macro
     // Antes: exportSchema = false descartava o histórico de schema a cada build -- o plugin
     // `androidx.room` já estava configurado para gravar em `schemas/` (ver bloco `room {}`
     // abaixo), mas isso nunca gerava nada porque o export estava desligado aqui. Com
@@ -82,6 +82,32 @@ abstract class AppDatabase : RoomDatabase() {
                 addIfMissing("reshadeProfile", "reshadeProfile TEXT NOT NULL DEFAULT 'Nenhum'")
                 addIfMissing("saturationOverride", "saturationOverride REAL NOT NULL DEFAULT 1.0")
                 addIfMissing("temperatureOverride", "temperatureOverride REAL NOT NULL DEFAULT 6500.0")
+            }
+        }
+
+        /** v6: calibração de cor por jogo (interruptor) e limite térmico por jogo. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val existing = mutableSetOf<String>()
+                db.query("PRAGMA table_info(appoverride)").use { cursor ->
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) existing += cursor.getString(nameIndex)
+                }
+                if ("displayOverride" !in existing) db.execSQL("ALTER TABLE appoverride ADD COLUMN displayOverride INTEGER NOT NULL DEFAULT 0")
+                if ("thermalMode" !in existing) db.execSQL("ALTER TABLE appoverride ADD COLUMN thermalMode TEXT")
+            }
+        }
+
+        /** v7: macros de M1/M2 por jogo. */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val existing = mutableSetOf<String>()
+                db.query("PRAGMA table_info(appoverride)").use { cursor ->
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) existing += cursor.getString(nameIndex)
+                }
+                if ("m1Macro" !in existing) db.execSQL("ALTER TABLE appoverride ADD COLUMN m1Macro TEXT")
+                if ("m2Macro" !in existing) db.execSQL("ALTER TABLE appoverride ADD COLUMN m2Macro TEXT")
             }
         }
     }
