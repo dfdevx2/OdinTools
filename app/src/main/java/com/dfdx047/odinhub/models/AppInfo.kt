@@ -24,7 +24,7 @@ object AppInfo {
      * ATENÇÃO: confirma este endereço se o repositório for renomeado no GitHub. É o único sítio
      * onde o link existe — a UI e o botão de atualizações leem daqui.
      */
-    const val GITHUB_URL = "https://github.com/dfdx047/OdinHub"
+    const val GITHUB_URL = "https://github.com/dfdevx2/OdinHub"
 
     const val RELEASES_URL = "$GITHUB_URL/releases/latest"
 

@@ -6,11 +6,11 @@
 
 <p align="center">
   A console-style hardware and performance control center for the <b>AYN Odin 3</b>.<br>
-  Built by <b>dfdx047</b>.
+  Built by <b>dfdevx2</b>.
 </p>
 
 <p align="center">
-  <a href="https://github.com/dfdx047/odinhub/releases/latest"><img src="https://img.shields.io/github/v/release/dfdx047/odinhub?include_prereleases&label=download&style=for-the-badge" alt="Latest release"></a>
+  <a href="https://github.com/dfdevx2/OdinHub/releases/latest"><img src="https://img.shields.io/github/v/release/dfdevx2/OdinHub?include_prereleases&label=download&style=for-the-badge" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/device-AYN%20Odin%203-7c6cf0?style=for-the-badge" alt="AYN Odin 3">
   <img src="https://img.shields.io/badge/root-not%20required-2ea44f?style=for-the-badge" alt="No root required">
 </p>
@@ -115,15 +115,15 @@ Foreground-app detection runs through an accessibility service, with a `UsageSta
 
 ## Installing
 
-1. Download the latest APK from the [Releases](https://github.com/dfdx047/odinhub/releases/latest) page.
+1. Download the latest APK from the [Releases](https://github.com/dfdevx2/OdinHub/releases/latest) page.
 2. Install it on your Odin 3.
 3. Launch it and grant the two permissions it asks for.
 
 ## Building
 
 ```bash
-git clone https://github.com/dfdx047/odinhub.git
-cd odinhub
+git clone https://github.com/dfdevx2/OdinHub.git
+cd OdinHub
 ./gradlew assembleDebug
 ```
 
